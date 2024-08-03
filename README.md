@@ -21,6 +21,8 @@ Most of the key binds you would expect from
 are there, I have also added some for convenience. Here is a
 non-exhaustive list of some of them:
 
+q to quit
+
 j / Arrow down / Enter scrolls the current mail one line down
 
 k / Arrow up scrolls the current mail one line up
