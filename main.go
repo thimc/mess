@@ -58,9 +58,9 @@ func scanfmt(dot, total int) string {
 		return ".-0:.+5"
 	case 2:
 		return ".-1:.+4"
-	case limit - 2:
+	case total - 2:
 		return ".-3:.+2"
-	case limit - 1:
+	case total - 1:
 		return ".-4:.+1"
 	case total:
 		return ".-5:.+0"
