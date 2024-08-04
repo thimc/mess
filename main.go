@@ -70,13 +70,13 @@ func scanfmt(dot, total int) string {
 }
 
 type UI struct {
-	s        tcell.Screen
-	total    int
-	dot      int
-	offset   int
-	lncount  int
-	showHTML bool
-	raw      bool
+	s         tcell.Screen
+	dot       int
+	mailcount int
+	maillen   int
+	poffset   int
+	html      bool
+	raw       bool
 }
 
 func newUI() (*UI, error) {
@@ -97,11 +97,11 @@ func (u *UI) Close() {
 }
 
 func (u *UI) Draw() error {
+	u.s.Clear()
 	// TODO(thimc): Handle the errors in the event loop by printing them
 	// to the screen rather than panicking when it makes sense.
-	u.s.Clear()
 	var err error
-	if u.total, err = cmdtoi("mscan", "-n", "--", "-1"); err != nil {
+	if u.mailcount, err = cmdtoi("mscan", "-n", "--", "-1"); err != nil {
 		return err
 	}
 	if u.dot, err = cmdtoi("mscan", "-f", "%n", "."); err != nil {
@@ -109,7 +109,7 @@ func (u *UI) Draw() error {
 	}
 	var p = point{0, 0}
 
-	overview, err := runCmd("mscan", scanfmt(u.dot, u.total))
+	overview, err := runCmd("mscan", scanfmt(u.dot, u.mailcount))
 	if err != nil {
 		return err
 	}
@@ -141,7 +141,7 @@ func (u *UI) Draw() error {
 		out = append([]string{fname}, strings.Split(string(buf), "\n")...)
 	} else {
 		args := []string{fmt.Sprint(u.dot)}
-		if u.showHTML {
+		if u.html {
 			args = []string{"-A", "text/html", fmt.Sprint(u.dot)}
 		}
 		out, err = runCmd("mshow", args...)
@@ -150,25 +150,31 @@ func (u *UI) Draw() error {
 		}
 	}
 	for n, ln := range out {
-		if n < u.offset {
+		if n < u.poffset {
 			continue
 		}
 		p.x = 0
 		drawString(u.s, &p, ln, true)
 		p.y++
 	}
-	u.lncount = len(out)
+	u.maillen = len(out)
+	u.statusbar()
+	u.s.Show()
+	return nil
+}
 
+func (u *UI) statusbar() {
 	wmax, hmax := u.s.Size()
 	for x := range wmax {
 		u.s.SetContent(x, hmax-1, ' ', nil, style)
 	}
 	style = styleError
-	drawString(u.s, &point{x: 0, y: hmax - 1}, fmt.Sprintf("mail %d of %d", u.dot, u.total), false)
+	var (
+		s  = fmt.Sprintf("mail %d of %d", u.dot, u.mailcount)
+		pt = &point{x: 0, y: hmax - 1}
+	)
+	drawString(u.s, pt, s, false)
 	style = styleDefault
-
-	u.s.Show()
-	return nil
 }
 
 func (u *UI) Event() error {
@@ -176,28 +182,26 @@ func (u *UI) Event() error {
 	case *tcell.EventResize:
 		u.s.Sync()
 	case *tcell.EventKey:
-		r := ev.Rune()
-		drawString(u.s, &point{0, 0}, fmt.Sprintf("r=%c", r), false)
 		switch {
-		case r == '^':
+		case ev.Rune() == '^':
 			if _, err := runCmd("mseq", "-C", ".^"); err != nil {
 				return err
 			}
-		case r == '0':
+		case ev.Rune() == '0':
 			u.dot = 1
 			if _, err := runCmd("mseq", "-C", fmt.Sprint(u.dot)); err != nil {
 				return err
 			}
-		case r == '$':
-			u.dot = u.total
+		case ev.Rune() == '$':
+			u.dot = u.mailcount
 			if _, err := runCmd("mseq", "-C", fmt.Sprint(u.dot)); err != nil {
 				return err
 			}
-		case r == 'c':
+		case ev.Rune() == 'c':
 			if err := u.execCmd("mcom"); err != nil {
 				return err
 			}
-		case r == 'd':
+		case ev.Rune() == 'd':
 			if _, err := runCmd("mflag", "-S", "."); err != nil {
 				return err
 			}
@@ -214,34 +218,36 @@ func (u *UI) Event() error {
 			if _, err := runCmd("mseq", "-C", "+"); err != nil {
 				return err
 			}
-		case r == 'f':
+		case ev.Rune() == 'f':
 			if err := u.execCmd("mfwd"); err != nil {
 				return err
 			}
-		case r == 'g', ev.Key() == tcell.KeyHome:
-			u.offset = 0
-		case r == 'j', ev.Key() == tcell.KeyDown, ev.Key() == tcell.KeyEnter:
-			max := u.lncount - limit - 1
+		case ev.Rune() == 'g', ev.Key() == tcell.KeyHome:
+			u.poffset = 0
+		case ev.Rune() == 'j', ev.Key() == tcell.KeyDown, ev.Key() == tcell.KeyEnter:
+			max := u.maillen - limit - 1
 			if max < 0 {
 				max = 0
 			}
-			if u.offset >= max {
-				u.offset = max
+			if u.poffset >= max {
+				u.poffset = max
+				return fmt.Errorf("already at the bottom")
 			} else {
-				u.offset++
+				u.poffset++
 			}
-		case r == 'k', ev.Key() == tcell.KeyUp:
-			u.offset--
-			if u.offset < 0 {
-				u.offset = 0
+		case ev.Rune() == 'k', ev.Key() == tcell.KeyUp:
+			u.poffset--
+			if u.poffset < 0 {
+				u.poffset = 0
+				return fmt.Errorf("already at the top")
 			}
-		case r == 'q':
+		case ev.Rune() == 'q':
 			u.Close()
-		case r == 'r':
+		case ev.Rune() == 'r':
 			if err := u.execCmd("mrep"); err != nil {
 				return err
 			}
-		case r == 'u':
+		case ev.Rune() == 'u':
 			runCmd("mflag", "-s", ".")
 			mails, err := runCmd("mseq", "-f", ":")
 			if err != nil {
@@ -254,7 +260,7 @@ func (u *UI) Event() error {
 				return err
 			}
 			runCmd("mseq", "-C", "+")
-		case r == 'D', ev.Key() == tcell.KeyDelete:
+		case ev.Rune() == 'D', ev.Key() == tcell.KeyDelete:
 			var delete bool
 		prompt:
 			for {
@@ -286,25 +292,25 @@ func (u *UI) Event() error {
 					return err
 				}
 			}
-		case r == 'G', ev.Key() == tcell.KeyEnd:
-			max := u.lncount - limit - 1
+		case ev.Rune() == 'G', ev.Key() == tcell.KeyEnd:
+			max := u.maillen - limit - 1
 			if max < 0 {
 				max = 0
 			}
-			u.offset = max
-		case r == 'H':
-			u.showHTML = !u.showHTML
-		case r == 'J':
+			u.poffset = max
+		case ev.Rune() == 'H':
+			u.html = !u.html
+		case ev.Rune() == 'J':
 			if _, err := runCmd("mseq", "-C", ".+1"); err != nil {
 				return err
 			}
-			u.offset = 0
-		case r == 'K':
+			u.poffset = 0
+		case ev.Rune() == 'K':
 			if _, err := runCmd("mseq", "-C", ".-1"); err != nil {
 				return err
 			}
-			u.offset = 0
-		case r == 'N':
+			u.poffset = 0
+		case ev.Rune() == 'N':
 			unseen, err := runCmd("magrep", "-v", "-m1", ":S", ".:")
 			if err != nil {
 				return err
@@ -312,9 +318,9 @@ func (u *UI) Event() error {
 			if _, err := runCmd("mseq", "-C", unseen[0]); err != nil {
 				return err
 			}
-		case r == 'R':
+		case ev.Rune() == 'R':
 			u.raw = !u.raw
-		case r == 'T':
+		case ev.Rune() == 'T':
 			mails, err := runCmd("mseq", ".+1:")
 			if err != nil {
 				return err
@@ -333,22 +339,22 @@ func (u *UI) Event() error {
 		case ev.Key() == tcell.KeyCtrlD, ev.Key() == tcell.KeyPgDn:
 			_, pg := u.s.Size()
 			pg -= limit - 1
-			max := u.lncount - limit - 1
+			max := u.maillen - limit - 1
 			if max < 0 {
 				max = 0
 			}
-			if u.offset+pg >= max {
-				u.offset = max
+			if u.poffset+pg >= max {
+				u.poffset = max
 			} else {
-				u.offset += pg
+				u.poffset += pg
 			}
 		case ev.Key() == tcell.KeyCtrlU, ev.Key() == tcell.KeyPgUp:
 			_, pg := u.s.Size()
 			pg -= limit - 1
-			if u.offset-pg <= 0 {
-				u.offset = 0
+			if u.poffset-pg <= 0 {
+				u.poffset = 0
 			} else {
-				u.offset -= pg
+				u.poffset -= pg
 			}
 		default:
 			if ev.Key() == tcell.KeyCtrlL {
