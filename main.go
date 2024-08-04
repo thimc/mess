@@ -2,6 +2,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -50,6 +51,21 @@ func runCmd(cmd string, args ...string) ([]string, error) {
 	return strings.Split(output, "\n"), err
 }
 
+func cmdtoi(cmd string, args ...string) (int, error) {
+	out, err := runCmd(cmd, args...)
+	if err != nil {
+		return -1, err
+	}
+	if len(out) < 1 {
+		return -1, fmt.Errorf("run %v: empty output", cmd)
+	}
+	n, err := strconv.Atoi(out[0])
+	if err != nil {
+		return -1, err
+	}
+	return n, nil
+}
+
 func scanfmt(dot, total int) string {
 	// TODO(thimc): Calculate how the range should be defined rather
 	// than using hard coded values.
@@ -91,15 +107,31 @@ func newUI() (*UI, error) {
 	return &UI{s: s}, nil
 }
 
+// Run runs the UI for one frame, it returns io.EOF when the user has
+// requested the program to exit. Any other error is handled by
+// rendering them on the screen.
+func (u *UI) Run() error {
+	// TODO(thimc): Handle the errors in the event loop by printing them
+	// to the screen rather than panicking when it makes sense.
+	u.s.Clear()
+	if err := u.draw(); err != nil {
+	}
+	u.s.Show()
+	if err := u.event(); err != nil {
+		if errors.Is(err, io.EOF) {
+			return err
+		}
+	}
+	return nil
+}
+
+// Close destroys the user interface and quits the program.
 func (u *UI) Close() {
 	u.s.Fini()
 	os.Exit(0)
 }
 
-func (u *UI) Draw() error {
-	u.s.Clear()
-	// TODO(thimc): Handle the errors in the event loop by printing them
-	// to the screen rather than panicking when it makes sense.
+func (u *UI) draw() error {
 	var err error
 	if u.mailcount, err = cmdtoi("mscan", "-n", "--", "-1"); err != nil {
 		return err
@@ -159,7 +191,6 @@ func (u *UI) Draw() error {
 	}
 	u.maillen = len(out)
 	u.statusbar()
-	u.s.Show()
 	return nil
 }
 
@@ -177,7 +208,7 @@ func (u *UI) statusbar() {
 	style = styleDefault
 }
 
-func (u *UI) Event() error {
+func (u *UI) event() error {
 	switch ev := u.s.PollEvent(); ev := ev.(type) {
 	case *tcell.EventResize:
 		u.s.Sync()
@@ -242,7 +273,7 @@ func (u *UI) Event() error {
 				return fmt.Errorf("already at the top")
 			}
 		case ev.Rune() == 'q':
-			u.Close()
+			return io.EOF
 		case ev.Rune() == 'r':
 			if err := u.execCmd("mrep"); err != nil {
 				return err
@@ -264,7 +295,7 @@ func (u *UI) Event() error {
 			var delete bool
 		prompt:
 			for {
-				if err := u.Draw(); err != nil {
+				if err := u.draw(); err != nil {
 					return err
 				}
 				wmax, hmax := u.s.Size()
@@ -365,21 +396,6 @@ func (u *UI) Event() error {
 	return nil
 }
 
-func cmdtoi(cmd string, args ...string) (int, error) {
-	out, err := runCmd(cmd, args...)
-	if err != nil {
-		return -1, err
-	}
-	if len(out) < 1 {
-		return -1, fmt.Errorf("run %v: empty output", cmd)
-	}
-	n, err := strconv.Atoi(out[0])
-	if err != nil {
-		return -1, err
-	}
-	return n, nil
-}
-
 func (u *UI) execCmd(cmd string, args ...string) error {
 	c := exec.Command(cmd, args...)
 	c.Stdin = os.Stdin
@@ -403,9 +419,9 @@ func main() {
 		panic(err)
 	}
 	defer ui.Close()
-
 	for {
-		ui.Draw()
-		ui.Event()
+		if err := ui.Run(); err != nil {
+			break
+		}
 	}
 }
