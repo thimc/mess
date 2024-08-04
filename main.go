@@ -31,7 +31,7 @@ func drawString(s tcell.Screen, p *point, str string, ml bool) {
 	if p.y >= h {
 		return
 	}
-	for _, r := range []rune(str) {
+	for _, r := range str {
 		s.SetContent(p.x, p.y, r, nil, style)
 		p.x++
 		if r == '\n' || (ml && p.x >= w) {
@@ -112,22 +112,12 @@ func NewUI(style tcell.Style) (*UI, error) {
 // requested the program to exit. Any other error is handled by
 // rendering them on the screen.
 func (u *UI) Run() error {
-	// TODO(thimc): Handle the errors in the event loop by printing them
-	// to the screen rather than panicking when it makes sense.
 	u.s.Clear()
 	if err := u.draw(); err != nil {
-		u.s.Suspend()
-		log.Fatal(err)
+		return err
 	}
 	u.s.Show()
-	if err := u.event(); err != nil {
-		if errors.Is(err, io.EOF) {
-			return err
-		}
-		u.s.Suspend()
-		log.Fatal(err)
-	}
-	return nil
+	return u.event()
 }
 
 // Close destroys the user interface and quits the program.
@@ -419,7 +409,13 @@ func main() {
 	defer ui.Close()
 	for {
 		if err := ui.Run(); err != nil {
-			break
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			ui.s.Suspend()
+			log.Fatal(err)
+			// TODO(thimc): Handle the errors in the event loop by printing them
+			// to the screen rather than panicking when it makes sense.
 		}
 	}
 }
