@@ -18,42 +18,45 @@ get right. Be warned**
 
 Most of the key binds you would expect from
 [mless](https://github.com/leahneukirchen/mblaze/blob/master/man/mless.1)
-are there, I have also added some for convenience. Here is a
-non-exhaustive list of some of them:
+are there, I have also added some for convenience.
 
-q to quit
+`$` to go to the last message
 
-`j` / `Arrow down` / `Enter` scrolls the current mail one line down
+`0` to go to the first message
 
-`k` / `Arrow up` scrolls the current mail one line up
+`D` prompts the current message for deletion
+
+`G` / `Home` to scroll to the top
+
+`H` toggles forces the mail to be rendered in HTML mode
 
 `J` goes to next mail
 
 `K` goes to previous mail
 
-`0` to go to the first message
-
-`$` to go to the last message
-
 `N` to go to the next unseen message
-
-`D` prompts the current message for deletion
-
-`c` opens the `$EDITOR` and lets the user compose a new mail
-
-`f` opens the `$EDITOR` and runs mfwd, to forward a mail
-
-`r` opens the `$EDITOR` and runs mrep, to reply to a mail
-
-`d` marks the current message as read
-
-`u` marks the current message as unread
 
 `R` toggles the raw mode which prints the files content without any rendering.
 
-`H` toggles forces the mail to be rendered in HTML mode
-
 `^` goto the parent mail
+
+`c` opens the `$EDITOR` and lets the user compose a new mail
+
+`d` marks the current message as read
+
+`f` opens the `$EDITOR` and runs mfwd, to forward a mail
+
+`g` / `End` to scroll the current mail to the bottom
+
+`j` / `Arrow down` / `Enter` scrolls the current mail one line down
+
+`k` / `Arrow up` scrolls the current mail one line up
+
+`r` opens the `$EDITOR` and runs mrep, to reply to a mail
+
+`u` marks the current message as unread
+
+`q` to quit
 
 ## License
 
