@@ -58,6 +58,10 @@ are there, I have also added some for convenience.
 
 `q` to quit
 
+`Ctrl+d` / `Page Down` to scroll the mail one page down
+
+`Ctrl+u` / `Page Up` to scroll the mail one page up
+
 ## License
 
 MIT

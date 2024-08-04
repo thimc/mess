@@ -306,6 +306,26 @@ func (u *UI) Event() error {
 			if _, err := runCmd("mseq", "-C", thread[0]); err != nil {
 				return err
 			}
+		case ev.Key() == tcell.KeyCtrlD, ev.Key() == tcell.KeyPgDn:
+			_, pg := u.s.Size()
+			pg -= limit - 1
+			max := u.lncount - limit - 1
+			if max < 0 {
+				max = 0
+			}
+			if u.offset+pg >= max {
+				u.offset = max
+			} else {
+				u.offset += pg
+			}
+		case ev.Key() == tcell.KeyCtrlU, ev.Key() == tcell.KeyPgUp:
+			_, pg := u.s.Size()
+			pg -= limit - 1
+			if u.offset-pg <= 0 {
+				u.offset = 0
+			} else {
+				u.offset -= pg
+			}
 		default:
 			if ev.Key() == tcell.KeyCtrlL {
 				u.s.Clear()
