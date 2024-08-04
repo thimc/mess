@@ -214,13 +214,12 @@ func (u *UI) Event() error {
 		case r == 'g', ev.Key() == tcell.KeyHome:
 			u.offset = 0
 		case r == 'j', ev.Key() == tcell.KeyDown, ev.Key() == tcell.KeyEnter:
-			_, hmax := u.s.Size()
-			hmax += (limit * 4)
-			if hmax < 0 {
-				hmax = 0
+			max := u.lncount - limit - 1
+			if max < 0 {
+				max = 0
 			}
-			if u.offset >= hmax {
-				u.offset = hmax
+			if u.offset >= max {
+				u.offset = max
 			} else {
 				u.offset++
 			}
