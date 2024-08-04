@@ -180,7 +180,7 @@ func (u *UI) Event() error {
 		drawString(u.s, &point{0, 0}, fmt.Sprintf("r=%c", r), false)
 		switch {
 		case r == '^':
-			if _, err := runCmd("mseq", "-C", "'.^'"); err != nil {
+			if _, err := runCmd("mseq", "-C", ".^"); err != nil {
 				return err
 			}
 		case r == '0':
@@ -201,7 +201,14 @@ func (u *UI) Event() error {
 			if _, err := runCmd("mflag", "-S", "."); err != nil {
 				return err
 			}
-			if _, err := runCmd("mflag", "-f", ":", "|", "mseq", "-S"); err != nil {
+			mails, err := runCmd("mseq", "-f", ":")
+			if err != nil {
+				return err
+			}
+			c := exec.Command("mseq", "-S")
+			c.Env = os.Environ()
+			c.Stdin = strings.NewReader(strings.Join(mails, "\n"))
+			if err := c.Run(); err != nil {
 				return err
 			}
 			if _, err := runCmd("mseq", "-C", "+"); err != nil {
@@ -236,7 +243,16 @@ func (u *UI) Event() error {
 			}
 		case r == 'u':
 			runCmd("mflag", "-s", ".")
-			runCmd("mflag", "-f", ":", "|", "mseq", "-S")
+			mails, err := runCmd("mseq", "-f", ":")
+			if err != nil {
+				return err
+			}
+			c := exec.Command("mseq", "-S")
+			c.Env = os.Environ()
+			c.Stdin = strings.NewReader(strings.Join(mails, "\n"))
+			if err := c.Run(); err != nil {
+				return err
+			}
 			runCmd("mseq", "-C", "+")
 		case r == 'D', ev.Key() == tcell.KeyDelete:
 			var delete bool
@@ -299,11 +315,19 @@ func (u *UI) Event() error {
 		case r == 'R':
 			u.raw = !u.raw
 		case r == 'T':
-			thread, err := runCmd("mseq", ".+1:", "|", "sed", "-n", "'/^[^ <]/{p;q;}'")
+			mails, err := runCmd("mseq", ".+1:")
 			if err != nil {
 				return err
 			}
-			if _, err := runCmd("mseq", "-C", thread[0]); err != nil {
+			c := exec.Command("sed", "-n", "/^[^ <]/{p;q;}")
+			c.Env = os.Environ()
+			c.Stdin = strings.NewReader(strings.Join(mails, "\n"))
+			buf, err := c.Output()
+			if err != nil {
+				return err
+			}
+			output := strings.TrimSuffix(string(buf), "\n")
+			if _, err := runCmd("mseq", "-C", output); err != nil {
 				return err
 			}
 		case ev.Key() == tcell.KeyCtrlD, ev.Key() == tcell.KeyPgDn:
