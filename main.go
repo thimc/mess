@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"strconv"
@@ -36,7 +37,6 @@ func drawString(s tcell.Screen, p *point, str string, ml bool) {
 		if r == '\n' || (ml && p.x >= w) {
 			p.y++
 			p.x = 0
-			continue
 		} else if !ml && p.x >= w {
 			break
 		}
@@ -56,8 +56,8 @@ func cmdtoi(cmd string, args ...string) (int, error) {
 	if err != nil {
 		return -1, err
 	}
-	if len(out) < 1 {
-		return -1, fmt.Errorf("run %v: empty output", cmd)
+	if len(out) < 1 || strings.Join(out, "\n") == "" {
+		return -1, fmt.Errorf("%v: empty output", cmd)
 	}
 	n, err := strconv.Atoi(out[0])
 	if err != nil {
@@ -95,7 +95,8 @@ type UI struct {
 	raw       bool
 }
 
-func newUI() (*UI, error) {
+// NewUI creates a new user interface
+func NewUI(style tcell.Style) (*UI, error) {
 	s, err := tcell.NewScreen()
 	if err != nil {
 		return nil, err
@@ -115,12 +116,16 @@ func (u *UI) Run() error {
 	// to the screen rather than panicking when it makes sense.
 	u.s.Clear()
 	if err := u.draw(); err != nil {
+		u.s.Suspend()
+		log.Fatal(err)
 	}
 	u.s.Show()
 	if err := u.event(); err != nil {
 		if errors.Is(err, io.EOF) {
 			return err
 		}
+		u.s.Suspend()
+		log.Fatal(err)
 	}
 	return nil
 }
@@ -194,6 +199,17 @@ func (u *UI) draw() error {
 	return nil
 }
 
+func (u *UI) refresh() error {
+	mails, err := runCmd("mseq", "-f", ":")
+	if err != nil {
+		return err
+	}
+	c := exec.Command("mseq", "-S")
+	c.Env = os.Environ()
+	c.Stdin = strings.NewReader(strings.Join(mails, "\n"))
+	return c.Run()
+}
+
 func (u *UI) statusbar() {
 	wmax, hmax := u.s.Size()
 	for x := range wmax {
@@ -215,19 +231,16 @@ func (u *UI) event() error {
 	case *tcell.EventKey:
 		switch {
 		case ev.Rune() == '^':
-			if _, err := runCmd("mseq", "-C", ".^"); err != nil {
-				return err
-			}
+			_, err := runCmd("mseq", "-C", ".^")
+			return err
 		case ev.Rune() == '0':
 			u.dot = 1
-			if _, err := runCmd("mseq", "-C", fmt.Sprint(u.dot)); err != nil {
-				return err
-			}
+			_, err := runCmd("mseq", "-C", fmt.Sprint(u.dot))
+			return err
 		case ev.Rune() == '$':
 			u.dot = u.mailcount
-			if _, err := runCmd("mseq", "-C", fmt.Sprint(u.dot)); err != nil {
-				return err
-			}
+			_, err := runCmd("mseq", "-C", fmt.Sprint(u.dot))
+			return err
 		case ev.Rune() == 'c':
 			if err := u.execCmd("mcom"); err != nil {
 				return err
@@ -236,19 +249,11 @@ func (u *UI) event() error {
 			if _, err := runCmd("mflag", "-S", "."); err != nil {
 				return err
 			}
-			mails, err := runCmd("mseq", "-f", ":")
-			if err != nil {
+			if err := u.refresh(); err != nil {
 				return err
 			}
-			c := exec.Command("mseq", "-S")
-			c.Env = os.Environ()
-			c.Stdin = strings.NewReader(strings.Join(mails, "\n"))
-			if err := c.Run(); err != nil {
-				return err
-			}
-			if _, err := runCmd("mseq", "-C", "+"); err != nil {
-				return err
-			}
+			_, err := runCmd("mseq", "-C", "+")
+			return err
 		case ev.Rune() == 'f':
 			if err := u.execCmd("mfwd"); err != nil {
 				return err
@@ -279,18 +284,14 @@ func (u *UI) event() error {
 				return err
 			}
 		case ev.Rune() == 'u':
-			runCmd("mflag", "-s", ".")
-			mails, err := runCmd("mseq", "-f", ":")
-			if err != nil {
+			if _, err := runCmd("mflag", "-s", "."); err != nil {
 				return err
 			}
-			c := exec.Command("mseq", "-S")
-			c.Env = os.Environ()
-			c.Stdin = strings.NewReader(strings.Join(mails, "\n"))
-			if err := c.Run(); err != nil {
+			if err := u.refresh(); err != nil {
 				return err
 			}
-			runCmd("mseq", "-C", "+")
+			_, err := runCmd("mseq", "-C", "+")
+			return err
 		case ev.Rune() == 'D', ev.Key() == tcell.KeyDelete:
 			var delete bool
 		prompt:
@@ -319,9 +320,10 @@ func (u *UI) event() error {
 				if err != nil {
 					return err
 				}
-				if _, err := runCmd("rm", curr[0]); err != nil {
+				if err := u.refresh(); err != nil {
 					return err
 				}
+				return os.Remove(curr[0])
 			}
 		case ev.Rune() == 'G', ev.Key() == tcell.KeyEnd:
 			max := u.maillen - limit - 1
@@ -332,23 +334,20 @@ func (u *UI) event() error {
 		case ev.Rune() == 'H':
 			u.html = !u.html
 		case ev.Rune() == 'J':
-			if _, err := runCmd("mseq", "-C", ".+1"); err != nil {
-				return err
-			}
 			u.poffset = 0
+			_, err := runCmd("mseq", "-C", ".+1")
+			return err
 		case ev.Rune() == 'K':
-			if _, err := runCmd("mseq", "-C", ".-1"); err != nil {
-				return err
-			}
 			u.poffset = 0
+			_, err := runCmd("mseq", "-C", ".-1")
+			return err
 		case ev.Rune() == 'N':
 			unseen, err := runCmd("magrep", "-v", "-m1", ":S", ".:")
 			if err != nil {
 				return err
 			}
-			if _, err := runCmd("mseq", "-C", unseen[0]); err != nil {
-				return err
-			}
+			_, err = runCmd("mseq", "-C", unseen[0])
+			return err
 		case ev.Rune() == 'R':
 			u.raw = !u.raw
 		case ev.Rune() == 'T':
@@ -364,9 +363,8 @@ func (u *UI) event() error {
 				return err
 			}
 			output := strings.TrimSuffix(string(buf), "\n")
-			if _, err := runCmd("mseq", "-C", output); err != nil {
-				return err
-			}
+			_, err = runCmd("mseq", "-C", output)
+			return err
 		case ev.Key() == tcell.KeyCtrlD, ev.Key() == tcell.KeyPgDn:
 			_, pg := u.s.Size()
 			pg -= limit - 1
@@ -414,7 +412,7 @@ func (u *UI) execCmd(cmd string, args ...string) error {
 }
 
 func main() {
-	ui, err := newUI()
+	ui, err := NewUI(styleDefault)
 	if err != nil {
 		panic(err)
 	}
