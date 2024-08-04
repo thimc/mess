@@ -4,7 +4,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"os/exec"
 	"strconv"
@@ -70,6 +69,253 @@ func scanfmt(dot, total int) string {
 	}
 }
 
+type UI struct {
+	s        tcell.Screen
+	total    int
+	dot      int
+	offset   int
+	lncount  int
+	showHTML bool
+	raw      bool
+}
+
+func newUI() (*UI, error) {
+	s, err := tcell.NewScreen()
+	if err != nil {
+		return nil, err
+	}
+	if err := s.Init(); err != nil {
+		return nil, err
+	}
+	s.SetStyle(style)
+	return &UI{s: s}, nil
+}
+
+func (u *UI) Close() {
+	u.s.Fini()
+	os.Exit(0)
+}
+
+func (u *UI) Draw() error {
+	// TODO(thimc): Handle the errors in the event loop by printing them
+	// to the screen rather than panicking when it makes sense.
+	u.s.Clear()
+	var err error
+	if u.total, err = cmdtoi("mscan", "-n", "--", "-1"); err != nil {
+		return err
+	}
+	if u.dot, err = cmdtoi("mscan", "-f", "%n", "."); err != nil {
+		return err
+	}
+	var p = point{0, 0}
+
+	overview, err := runCmd("mscan", scanfmt(u.dot, u.total))
+	if err != nil {
+		return err
+	}
+	for _, ln := range overview {
+		p.x = 0
+		drawString(u.s, &p, ln, false)
+		p.y++
+	}
+
+	var out []string
+	if u.raw {
+		fpath, err := runCmd("mseq", "-r", fmt.Sprint(u.dot))
+		if err != nil {
+			return err
+		}
+		if len(fpath) < 1 {
+			return fmt.Errorf("mseq -r: empty output")
+		}
+		var fname = fpath[0]
+		f, err := os.Open(fname)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		buf, err := io.ReadAll(f)
+		if err != nil {
+			return err
+		}
+		out = append([]string{fname}, strings.Split(string(buf), "\n")...)
+	} else {
+		args := []string{fmt.Sprint(u.dot)}
+		if u.showHTML {
+			args = []string{"-A", "text/html", fmt.Sprint(u.dot)}
+		}
+		out, err = runCmd("mshow", args...)
+		if err != nil {
+			return err
+		}
+	}
+	for n, ln := range out {
+		if n < u.offset {
+			continue
+		}
+		p.x = 0
+		drawString(u.s, &p, ln, true)
+		p.y++
+	}
+	u.lncount = len(out)
+
+	wmax, hmax := u.s.Size()
+	for x := range wmax {
+		u.s.SetContent(x, hmax-1, ' ', nil, style)
+	}
+	style = styleError
+	drawString(u.s, &point{x: 0, y: hmax - 1}, fmt.Sprintf("mail %d of %d", u.dot, u.total), false)
+	style = styleDefault
+
+	u.s.Show()
+	return nil
+}
+
+func (u *UI) Event() error {
+	switch ev := u.s.PollEvent(); ev := ev.(type) {
+	case *tcell.EventResize:
+		u.s.Sync()
+	case *tcell.EventKey:
+		r := ev.Rune()
+		drawString(u.s, &point{0, 0}, fmt.Sprintf("r=%c", r), false)
+		switch {
+		case r == '^':
+			if _, err := runCmd("mseq", "-C", "'.^'"); err != nil {
+				return err
+			}
+		case r == '0':
+			u.dot = 1
+			if _, err := runCmd("mseq", "-C", fmt.Sprint(u.dot)); err != nil {
+				return err
+			}
+		case r == '$':
+			u.dot = u.total
+			if _, err := runCmd("mseq", "-C", fmt.Sprint(u.dot)); err != nil {
+				return err
+			}
+		case r == 'c':
+			if err := u.execCmd("mcom"); err != nil {
+				return err
+			}
+		case r == 'd':
+			if _, err := runCmd("mflag", "-S", "."); err != nil {
+				return err
+			}
+			if _, err := runCmd("mflag", "-f", ":", "|", "mseq", "-S"); err != nil {
+				return err
+			}
+			if _, err := runCmd("mseq", "-C", "+"); err != nil {
+				return err
+			}
+		case r == 'f':
+			if err := u.execCmd("mfwd"); err != nil {
+				return err
+			}
+		case r == 'g', ev.Key() == tcell.KeyHome:
+			u.offset = 0
+		case r == 'j', ev.Key() == tcell.KeyDown, ev.Key() == tcell.KeyEnter:
+			_, hmax := u.s.Size()
+			hmax += (limit * 4)
+			if hmax < 0 {
+				hmax = 0
+			}
+			if u.offset >= hmax {
+				u.offset = hmax
+			} else {
+				u.offset++
+			}
+		case r == 'k', ev.Key() == tcell.KeyUp:
+			u.offset--
+			if u.offset < 0 {
+				u.offset = 0
+			}
+		case r == 'q':
+			u.Close()
+		case r == 'r':
+			if err := u.execCmd("mrep"); err != nil {
+				return err
+			}
+		case r == 'u':
+			runCmd("mflag", "-s", ".")
+			runCmd("mflag", "-f", ":", "|", "mseq", "-S")
+			runCmd("mseq", "-C", "+")
+		case r == 'D', ev.Key() == tcell.KeyDelete:
+			var delete bool
+		prompt:
+			for {
+				if err := u.Draw(); err != nil {
+					return err
+				}
+				wmax, hmax := u.s.Size()
+				for x := range wmax {
+					u.s.SetContent(x, hmax-1, ' ', nil, style)
+				}
+				style = styleError
+				drawString(u.s, &point{x: 0, y: hmax - 1}, "Delete the selected mail? (y/N)", false)
+				style = styleDefault
+				u.s.Show()
+				switch e := u.s.PollEvent(); e := e.(type) {
+				case *tcell.EventResize:
+					continue
+				case *tcell.EventKey:
+					delete = e.Rune() == 'y' || e.Rune() == 'Y'
+					break prompt
+				}
+			}
+			if delete {
+				curr, err := runCmd("mseq", ".")
+				if err != nil {
+					return err
+				}
+				if _, err := runCmd("rm", curr[0]); err != nil {
+					return err
+				}
+			}
+		case r == 'G', ev.Key() == tcell.KeyEnd:
+			max := u.lncount - limit - 1
+			if max < 0 {
+				max = 0
+			}
+			u.offset = max
+		case r == 'H':
+			u.showHTML = !u.showHTML
+		case r == 'J':
+			if _, err := runCmd("mseq", "-C", ".+1"); err != nil {
+				return err
+			}
+			u.offset = 0
+		case r == 'K':
+			if _, err := runCmd("mseq", "-C", ".-1"); err != nil {
+				return err
+			}
+			u.offset = 0
+		case r == 'N':
+			unseen, err := runCmd("magrep", "-v", "-m1", ":S", ".:")
+			if err != nil {
+				return err
+			}
+			if _, err := runCmd("mseq", "-C", unseen[0]); err != nil {
+				return err
+			}
+		case r == 'R':
+			u.raw = !u.raw
+		case r == 'T':
+			thread, err := runCmd("mseq", ".+1:", "|", "sed", "-n", "'/^[^ <]/{p;q;}'")
+			if err != nil {
+				return err
+			}
+			if _, err := runCmd("mseq", "-C", thread[0]); err != nil {
+				return err
+			}
+		default:
+			if ev.Key() == tcell.KeyCtrlL {
+				u.s.Clear()
+			}
+		}
+	}
+	return nil
+}
+
 func cmdtoi(cmd string, args ...string) (int, error) {
 	out, err := runCmd(cmd, args...)
 	if err != nil {
@@ -85,251 +331,32 @@ func cmdtoi(cmd string, args ...string) (int, error) {
 	return n, nil
 }
 
-func draw(s tcell.Screen, p *point, dot, total int) {
-	overview, err := runCmd("mscan", scanfmt(dot, total))
-	if err != nil {
-		log.Fatalf("mscan: %v", err)
-	}
-	for _, ln := range overview {
-		p.x = 0
-		drawString(s, p, ln, false)
-		p.y++
-	}
-}
-
-func current(s tcell.Screen, p *point, dot, o int, html, raw bool) (int, error) {
-	var (
-		out []string
-		err error
-	)
-	if raw {
-		fpath, err := runCmd("mseq", "-r", fmt.Sprint(dot))
-		if err != nil {
-			return -1, err
-		}
-		if len(fpath) < 1 {
-			return -1, fmt.Errorf("mseq -r: empty output")
-		}
-		var fname = fpath[0]
-		f, err := os.Open(fname)
-		if err != nil {
-			return -1, err
-		}
-		defer f.Close()
-		buf, err := io.ReadAll(f)
-		if err != nil {
-			return -1, err
-		}
-		out = append([]string{fname}, strings.Split(string(buf), "\n")...)
-	} else {
-		args := []string{fmt.Sprint(dot)}
-		if html {
-			args = []string{"-A", "text/html", fmt.Sprint(dot)}
-		}
-		out, err = runCmd("mshow", args...)
-		if err != nil {
-			return -1, err
-		}
-	}
-	for n, ln := range out {
-		if n < o {
-			continue
-		}
-		p.x = 0
-		drawString(s, p, ln, true)
-		p.y++
-	}
-	return p.y, nil
-}
-
-func statusbar(s tcell.Screen, dot, total int) {
-	wmax, hmax := s.Size()
-	for x := range wmax {
-		s.SetContent(x, hmax-1, ' ', nil, style)
-	}
-	style = styleError
-	drawString(s, &point{x: 0, y: hmax - 1}, fmt.Sprintf("mail %d of %d", dot, total), false)
-	style = styleDefault
-}
-
-func execCmd(s tcell.Screen, cmd string, args ...string) error {
+func (u *UI) execCmd(cmd string, args ...string) error {
 	c := exec.Command(cmd, args...)
 	c.Stdin = os.Stdin
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
-	if err := s.Suspend(); err != nil {
+	if err := u.s.Suspend(); err != nil {
 		return err
 	}
 	if err := c.Run(); err != nil {
 		return err
 	}
-	if err := s.Resume(); err != nil {
+	if err := u.s.Resume(); err != nil {
 		return err
 	}
 	return nil
 }
 
 func main() {
-	s, err := tcell.NewScreen()
+	ui, err := newUI()
 	if err != nil {
-		log.Fatalf("new screen: %v", err)
+		panic(err)
 	}
-	if err := s.Init(); err != nil {
-		log.Fatalf("init: %v", err)
-	}
-	s.SetStyle(style)
-	s.Clear()
-	cleanup := func() {
-		s.Fini()
-		os.Exit(0)
-	}
-	defer cleanup()
-	var (
-		total    int
-		dot      int
-		offset   int
-		lncount  int
-		showHTML bool
-		raw      bool
-	)
-	for {
-		// TODO(thimc): Handle the errors in the event loop by printing them
-		// to the screen rather than panicking when it makes sense.
-		s.Clear()
-		if total, err = cmdtoi("mscan", "-n", "--", "-1"); err != nil {
-			log.Fatalf("mscan: %v", err)
-		}
-		if dot, err = cmdtoi("mscan", "-f", "%n", "."); err != nil {
-			log.Fatalf("mscan: %v", err)
-		}
-		var p = point{0, 0}
-		draw(s, &p, dot, total)
-		lncount, err = current(s, &p, dot, offset, showHTML, raw)
-		if err != nil {
-			log.Fatalf("current: %v", err)
-		}
-		statusbar(s, dot, total)
+	defer ui.Close()
 
-		s.Show()
-		switch ev := s.PollEvent(); ev := ev.(type) {
-		case *tcell.EventResize:
-			s.Sync()
-		case *tcell.EventKey:
-			r := ev.Rune()
-			drawString(s, &point{0, 0}, fmt.Sprintf("r=%c", r), false)
-			switch {
-			case ev.Key() == tcell.KeyHome:
-				offset = 0
-			case ev.Key() == tcell.KeyEnd:
-				_, hmax := s.Size()
-				max := lncount - hmax - limit - 1
-				if max < 0 {
-					max = 0
-				}
-				offset = max
-			case r == '^':
-				runCmd("mseq", "-C", "'.^'")
-			case r == '0':
-				dot = 1
-				runCmd("mseq", "-C", fmt.Sprint(dot))
-			case r == '$':
-				dot = total
-				runCmd("mseq", "-C", fmt.Sprint(dot))
-			case r == 'c':
-				if err := execCmd(s, "mcom"); err != nil {
-					log.Fatalf("execCmd: %v", err)
-				}
-			case r == 'd':
-				runCmd("mflags", "-S", ".")
-				runCmd("mflags", "-f", ":", "|", "mseq", "-S")
-				runCmd("mseq", "-C", "+")
-			case r == 'f':
-				if err := execCmd(s, "mfwd"); err != nil {
-					log.Fatalf("execCmd: %v", err)
-				}
-			case r == 'j', ev.Key() == tcell.KeyDown, ev.Key() == tcell.KeyEnter:
-				offset++
-				// TODO(thimc): fix clamping when scrolling down the mail
-				// _, hmax := s.Size()
-				// max := lncount - hmax - limit - 1
-				// if max < 0 {
-				// 	max = 0
-				// }
-				// if offset >= max {
-				// 	offset = max
-				// }
-			case r == 'k', ev.Key() == tcell.KeyUp:
-				offset--
-				if offset < 0 {
-					offset = 0
-				}
-			case r == 'q':
-				cleanup()
-			case r == 'r':
-				if err := execCmd(s, "mrep"); err != nil {
-					log.Fatalf("execCmd: %v", err)
-				}
-			case r == 'u':
-				runCmd("mflags", "-s", ".")
-				runCmd("mflags", "-f", ":", "|", "mseq", "-S")
-				runCmd("mseq", "-C", "+")
-			case r == 'D', ev.Key() == tcell.KeyDelete:
-				var delete bool
-			prompt:
-				for {
-					// TODO(thimc): delete mail loop: Resizing will have consequences :)
-					wmax, hmax := s.Size()
-					for x := range wmax {
-						s.SetContent(x, hmax-1, ' ', nil, style)
-					}
-					style = styleError
-					drawString(s, &point{x: 0, y: hmax - 1}, "Delete the selected mail? (y/N)", false)
-					style = styleDefault
-					s.Show()
-					switch e := s.PollEvent(); e := e.(type) {
-					case *tcell.EventResize:
-						continue
-					case *tcell.EventKey:
-						delete = e.Rune() == 'y' || e.Rune() == 'Y'
-						break prompt
-					}
-				}
-				if delete {
-					curr, err := runCmd("mseq", ".")
-					if err != nil {
-						log.Fatalf("mseq: %v", err)
-					}
-					if _, err := runCmd("rm", curr[0]); err != nil {
-						log.Fatalf("rm: %v", err)
-					}
-				}
-			case r == 'H':
-				showHTML = !showHTML
-			case r == 'J':
-				runCmd("mseq", "-C", ".+1")
-				offset = 0
-			case r == 'K':
-				runCmd("mseq", "-C", ".-1")
-				offset = 0
-			case r == 'N':
-				unseen, err := runCmd("magrep", "-v", "-m1", ":S", ".:")
-				if err != nil {
-					log.Fatalf("magrep: %v", err)
-				}
-				runCmd("mseq", "-C", unseen[0])
-			case r == 'R':
-				raw = !raw
-			case r == 'T':
-				thread, err := runCmd("mseq", ".+1:", "|", "sed", "-n", "'/^[^ <]/{p;q;}'")
-				if err != nil {
-					log.Fatalf("mseq: %v", err)
-				}
-				runCmd("mseq", "-C", thread[0])
-			default:
-				if ev.Key() == tcell.KeyCtrlL {
-					s.Clear()
-				}
-			}
-		}
+	for {
+		ui.Draw()
+		ui.Event()
 	}
 }
