@@ -2,10 +2,8 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"os/exec"
 	"strconv"
@@ -22,6 +20,8 @@ var (
 	styleDefault = tcell.StyleDefault.Background(tcell.ColorReset).Foreground(tcell.ColorReset)
 	styleError   = styleDefault.Reverse(true)
 	style        = styleDefault
+
+	mshowArgs = os.Getenv("MSHOW_ARGS")
 )
 
 type point struct{ x, y int }
@@ -90,9 +90,11 @@ type UI struct {
 	dot       int
 	mailcount int
 	maillen   int
+	curmail   []string
 	poffset   int
 	html      bool
 	raw       bool
+	err       error
 }
 
 // NewUI creates a new user interface
@@ -111,17 +113,16 @@ func NewUI(style tcell.Style) (*UI, error) {
 // Run runs the UI for one frame, it returns io.EOF when the user has
 // requested the program to exit. Any other error is handled by
 // rendering them on the screen.
-func (u *UI) Run() error {
+func (u *UI) Run() {
 	u.s.Clear()
-	if err := u.draw(); err != nil {
-		return err
-	}
-	u.s.Show()
-	return u.event()
+	u.err = u.draw()
+	u.statusbar()
+	u.event()
 }
 
 // Close destroys the user interface and quits the program.
 func (u *UI) Close() {
+	u.s.Suspend()
 	u.s.Fini()
 	os.Exit(0)
 }
@@ -167,9 +168,9 @@ func (u *UI) draw() error {
 		}
 		out = append([]string{fname}, strings.Split(string(buf), "\n")...)
 	} else {
-		args := []string{fmt.Sprint(u.dot)}
+		args := []string{mshowArgs, fmt.Sprint(u.dot)}
 		if u.html {
-			args = []string{"-A", "text/html", fmt.Sprint(u.dot)}
+			args = []string{mshowArgs, "-A", "text/html", fmt.Sprint(u.dot)}
 		}
 		out, err = runCmd("mshow", args...)
 		if err != nil {
@@ -184,8 +185,8 @@ func (u *UI) draw() error {
 		drawString(u.s, &p, ln, true)
 		p.y++
 	}
-	u.maillen = len(out)
-	u.statusbar()
+	u.curmail = out
+	u.s.Show()
 	return nil
 }
 
@@ -210,8 +211,12 @@ func (u *UI) statusbar() {
 		s  = fmt.Sprintf("mail %d of %d", u.dot, u.mailcount)
 		pt = &point{x: 0, y: hmax - 1}
 	)
+	if u.err != nil {
+		s = fmt.Sprintf("error: %v", u.err)
+	}
 	drawString(u.s, pt, s, false)
 	style = styleDefault
+	u.s.Show()
 }
 
 func (u *UI) event() error {
@@ -265,13 +270,13 @@ func (u *UI) event() error {
 		case ev.Rune() == 'g', ev.Key() == tcell.KeyHome:
 			u.poffset = 0
 		case ev.Rune() == 'j', ev.Key() == tcell.KeyDown, ev.Key() == tcell.KeyEnter:
-			max := u.maillen - limit - 1
+			max := len(u.curmail) - limit - 1
 			if max < 0 {
 				max = 0
 			}
 			if u.poffset >= max {
 				u.poffset = max
-				return fmt.Errorf("already at the bottom")
+				// return fmt.Errorf("already at the bottom")
 			} else {
 				u.poffset++
 			}
@@ -279,10 +284,10 @@ func (u *UI) event() error {
 			u.poffset--
 			if u.poffset < 0 {
 				u.poffset = 0
-				return fmt.Errorf("already at the top")
+				// return fmt.Errorf("already at the top")
 			}
 		case ev.Rune() == 'q':
-			return io.EOF
+			u.Close()
 		case ev.Rune() == 'r':
 			if err := u.execCmd("mrep"); err != nil {
 				return err
@@ -324,13 +329,14 @@ func (u *UI) event() error {
 				if err != nil {
 					return err
 				}
-				if err := u.refresh(); err != nil {
+				defer os.Remove(curr[0])
+				if _, err = runCmd("mseq", "-C", "+"); err != nil {
 					return err
 				}
-				return os.Remove(curr[0])
+				return u.refresh()
 			}
 		case ev.Rune() == 'G', ev.Key() == tcell.KeyEnd:
-			max := u.maillen - limit - 1
+			max := len(u.curmail) - limit - 1
 			if max < 0 {
 				max = 0
 			}
@@ -372,7 +378,7 @@ func (u *UI) event() error {
 		case ev.Key() == tcell.KeyCtrlD, ev.Key() == tcell.KeyPgDn:
 			_, pg := u.s.Size()
 			pg -= limit - 1
-			max := u.maillen - limit - 1
+			max := len(u.curmail) - limit - 1
 			if max < 0 {
 				max = 0
 			}
@@ -422,14 +428,6 @@ func main() {
 	}
 	defer ui.Close()
 	for {
-		if err := ui.Run(); err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			ui.s.Suspend()
-			log.Fatal(err)
-			// TODO(thimc): Handle the errors in the event loop by printing them
-			// to the screen rather than panicking when it makes sense.
-		}
+		ui.Run()
 	}
 }
