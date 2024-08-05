@@ -220,6 +220,20 @@ func (u *UI) event() error {
 		u.s.Sync()
 	case *tcell.EventKey:
 		switch {
+		case ev.Rune() == '{':
+			for i := u.poffset - 1; i != 0; i-- {
+				if u.curmail[i] == "" {
+					u.poffset = i
+					break
+				}
+			}
+		case ev.Rune() == '}':
+			for i := u.poffset + 1; i != len(u.curmail)-1; i++ {
+				if u.curmail[i] == "" {
+					u.poffset = i
+					break
+				}
+			}
 		case ev.Rune() == '^':
 			_, err := runCmd("mseq", "-C", ".^")
 			return err
