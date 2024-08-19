@@ -44,42 +44,28 @@ func drawString(s tcell.Screen, p *point, str string, ml bool) {
 	}
 }
 
-func runCmd(cmd string, args ...string) ([]string, error) {
-	c := exec.Command(cmd, args...)
-	c.Env = os.Environ()
-	buf, err := c.Output()
-	output := strings.TrimSuffix(string(buf), "\n")
-	return strings.Split(output, "\n"), err
+// total returns the amount of mails in the current sequence
+func total() int {
+	total, err := cmdtoi("mscan", "-n", "--", "-1")
+	_ = err
+	return total + 1
 }
 
-func cmdtoi(cmd string, args ...string) (int, error) {
-	out, err := runCmd(cmd, args...)
-	if err != nil {
-		return -1, err
-	}
-	if len(out) < 1 || strings.Join(out, "\n") == "" {
-		return -1, fmt.Errorf("%v: empty output", cmd)
-	}
-	n, err := strconv.Atoi(out[0])
-	if err != nil {
-		return -1, err
-	}
-	return n, nil
-}
-
-func scanfmt(dot, total int) string {
-	// TODO(thimc): Calculate how the range should be defined rather
-	// than using hard coded values.
+// scanfmt determines how the mscan format should be printed.
+//
+// TODO(thimc): Calculate how the range should be defined rather
+// than using hard coded values.
+func scanfmt(dot int) string {
 	switch dot {
 	case 1:
 		return ".-0:.+5"
 	case 2:
 		return ".-1:.+4"
-	case total - 2:
+	case total() - 2:
 		return ".-3:.+2"
-	case total - 1:
+	case total() - 1:
 		return ".-4:.+1"
-	case total:
+	case total():
 		return ".-5:.+1"
 	default:
 		return ".-2:.+3"
@@ -87,17 +73,16 @@ func scanfmt(dot, total int) string {
 }
 
 type UI struct {
-	s         tcell.Screen
-	v         *views.ViewPort
-	p         *views.TextArea
-	t         *tcellterm.VT
-	dot       int
-	mailcount int
-	maillen   int
-	curmail   []string
-	poffset   int
-	html      bool
-	raw       bool
+	s       tcell.Screen
+	v       *views.ViewPort
+	tv      *views.ViewPort
+	p       *views.TextArea
+	t       *tcellterm.VT
+	dot     int
+	curmail []string
+	poffset int
+	html    bool
+	raw     bool
 }
 
 // NewUI creates a new user interface
@@ -110,34 +95,40 @@ func NewUI(style tcell.Style) (*UI, error) {
 		return nil, err
 	}
 	s.SetStyle(style)
-	u := &UI{
-		s: s,
-		t: tcellterm.New(),
-	}
-	v := views.NewViewPort(u.s, 0, 5, -1, -1)
-
+	u := &UI{s: s}
+	u.s.EnableMouse()
 	u.v = views.NewViewPort(u.s, 0, 0, -1, 5)
 	u.p = views.NewTextArea()
 	u.p.SetView(u.v)
 
-	u.t.SetSurface(u.v)
-	u.t.SetSurface(v)
-	u.t.Attach(func(ev tcell.Event) { u.s.PostEvent(ev) })
-	u.s.EnableMouse()
-
+	u.initterm()
 	u.displaymail()
 
 	return u, nil
 }
 
-func (u *UI) displaymail() error {
+// initterm initializes the virtual terminal
+func (u *UI) initterm() {
+	u.t = tcellterm.New()
+	u.tv = views.NewViewPort(u.s, 0, 5, -1, -1)
+	u.t.SetSurface(u.tv)
+	u.t.Attach(func(ev tcell.Event) { u.s.PostEvent(ev) })
+}
 
+// displaymail prints the current mail in a virtual terminal, launched
+// with `$MBLAZE_PAGER`
+func (u *UI) displaymail() error {
 	pager := os.Getenv("PAGER")
 	if pager == "" || pager == "less" {
 		pager = "less -R"
 	}
 	cmd := exec.Command("mshow")
 	cmd.Env = append(os.Environ(), "MBLAZE_PAGER="+pager)
+	if u.t != nil {
+		u.t.Close()
+		u.t.Detach()
+	}
+	u.initterm()
 	if err := u.t.Start(cmd); err != nil {
 		return err
 	}
@@ -150,7 +141,9 @@ func (u *UI) displaymail() error {
 func (u *UI) Run() {
 	for {
 
-		out, err := runCmd("mscan", []string{scanfmt(1, 10)}...)
+		dot, err := cmdtoi("mscan", "-n", ".")
+		_ = err
+		out, err := runCmd("mscan", []string{scanfmt(dot)}...)
 		_ = err
 		u.p.SetContent(strings.Join(out, "\n"))
 
@@ -166,9 +159,8 @@ func (u *UI) Run() {
 	}
 }
 
-// Close destroys the user interface and quits the program.
-func (u *UI) Close() {
-	u.s.Suspend()
+// Exit destroys the user interface and quits the program.
+func (u *UI) Exit() {
 	if u.t != nil {
 		u.t.Close()
 	}
@@ -176,17 +168,19 @@ func (u *UI) Close() {
 	os.Exit(0)
 }
 
+// refresh refreshes the mailbox sequence
 func (u *UI) refresh() error {
 	mails, err := runCmd("mseq", "-f", ":")
 	if err != nil {
 		return err
 	}
-	c := exec.Command("mseq", "-S")
-	c.Env = os.Environ()
-	c.Stdin = strings.NewReader(strings.Join(mails, "\n"))
-	return c.Run()
+	cmd := exec.Command("mseq", "-S")
+	cmd.Env = os.Environ()
+	cmd.Stdin = strings.NewReader(strings.Join(mails, "\n"))
+	return cmd.Run()
 }
 
+// update handles the user input;
 func (u *UI) update(ev tcell.Event) {
 	switch ev := ev.(type) {
 	case *tcell.EventResize:
@@ -212,11 +206,14 @@ func (u *UI) update(ev tcell.Event) {
 		case ev.Rune() == '^':
 			runCmd("mseq", "-C", ".^")
 		case ev.Rune() == '0':
-			u.dot = 1
-			runCmd("mseq", "-C", fmt.Sprint(u.dot))
+			_, _ = runCmd("mseq", "-C", "1")
+			u.poffset = 0
+			u.displaymail()
 		case ev.Rune() == '$':
-			u.dot = u.mailcount
-			runCmd("mseq", "-C", fmt.Sprint(u.dot))
+			tot := total()
+			_, _ = runCmd("mseq", "-C", fmt.Sprint(tot))
+			u.poffset = tot
+			u.displaymail()
 		case ev.Rune() == 'c':
 			u.execCmd("mcom")
 		case ev.Rune() == 'd':
@@ -225,11 +222,8 @@ func (u *UI) update(ev tcell.Event) {
 			runCmd("mseq", "-C", "+")
 		case ev.Rune() == 'f':
 			u.execCmd("mfwd")
-		case ev.Rune() == 'g', ev.Key() == tcell.KeyHome:
-			u.poffset = 0
 		case ev.Rune() == 'q':
-			u.Close()
-			return
+			u.Exit()
 		case ev.Rune() == 'r':
 			u.execCmd("mrep")
 			return
@@ -264,12 +258,6 @@ func (u *UI) update(ev tcell.Event) {
 				u.refresh()
 			}
 			return
-		case ev.Rune() == 'G', ev.Key() == tcell.KeyEnd:
-			max := len(u.curmail) - limit - 1
-			if max < 0 {
-				max = 0
-			}
-			u.poffset = max
 		case ev.Rune() == 'H':
 			u.html = !u.html
 			return
@@ -332,6 +320,33 @@ func (u *UI) update(ev tcell.Event) {
 	}
 }
 
+// cmdtoi wraps runCmd and parses the output as an integer.
+func cmdtoi(cmd string, args ...string) (int, error) {
+	out, err := runCmd(cmd, args...)
+	if err != nil {
+		return -1, err
+	}
+	if len(out) < 1 || strings.Join(out, "\n") == "" {
+		return -1, fmt.Errorf("%v: empty output", cmd)
+	}
+	n, err := strconv.Atoi(out[0])
+	if err != nil {
+		return -1, err
+	}
+	return n, nil
+}
+
+// runCmd runs the cmd in the background.
+func runCmd(cmd string, args ...string) ([]string, error) {
+	c := exec.Command(cmd, args...)
+	c.Env = os.Environ()
+	buf, err := c.Output()
+	output := strings.TrimSuffix(string(buf), "\n")
+	return strings.Split(output, "\n"), err
+}
+
+// execCmd susepnds the user interface and runs the cmd.
+// It resumes the interface when it is done.
 func (u *UI) execCmd(cmd string, args ...string) error {
 	c := exec.Command(cmd, args...)
 	c.Stdin = os.Stdin
@@ -340,13 +355,8 @@ func (u *UI) execCmd(cmd string, args ...string) error {
 	if err := u.s.Suspend(); err != nil {
 		return err
 	}
-	if err := c.Run(); err != nil {
-		return err
-	}
-	if err := u.s.Resume(); err != nil {
-		return err
-	}
-	return nil
+	defer u.s.Resume()
+	return c.Run()
 }
 
 func main() {
@@ -354,7 +364,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	defer ui.Close()
+	defer ui.Exit()
 	for {
 		ui.Run()
 	}
