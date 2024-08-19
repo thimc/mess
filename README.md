@@ -19,10 +19,6 @@ Most of the key binds you would expect from
 [mless](https://github.com/leahneukirchen/mblaze/blob/master/man/mless.1)
 are there, I have also added some for convenience.
 
-`{` to scroll to the previous paragraph
-
-`}` to scroll to the next paragraph
-
 `$` to go to the last message
 
 `0` to go to the first message
