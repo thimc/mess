@@ -120,7 +120,17 @@ func (u *UI) displaymail() error {
 	if pager == "" || pager == "less" {
 		pager = "less -R"
 	}
-	cmd := exec.Command("mshow", ".")
+	var args []string
+	if u.raw {
+		args = append(args, "-H", "-r")
+		// TODO(thimc): the -r flag causes mshow to print its output
+		// directly to standard output and not to less / MBLAZE_PAGER
+		// so we have to pipe the output to less manually.
+	} else if u.html {
+		args = append(args, "-A", "text/html")
+	}
+	args = append(args, ".")
+	cmd := exec.Command("mshow", args...)
 	cmd.Env = append(os.Environ(), "MBLAZE_PAGER="+pager)
 	if u.t != nil {
 		u.t.Close()
@@ -258,6 +268,7 @@ func (u *UI) update(ev tcell.Event) {
 			return
 		case ev.Rune() == 'R':
 			u.raw = !u.raw
+			u.displaymail()
 			return
 		case ev.Rune() == 'T':
 			mails, _ := runCmd("mseq", ".+1:")
