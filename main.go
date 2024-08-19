@@ -194,6 +194,18 @@ func (u *UI) update(ev tcell.Event) {
 		u.s.Sync()
 	case *tcellterm.EventRedraw:
 		u.t.Draw()
+	case *tcell.EventMouse:
+		var e *tcell.EventKey
+		switch ev.Buttons() {
+		case tcell.WheelDown:
+			e = tcell.NewEventKey(tcell.KeyRune, 'j', 0)
+		case tcell.WheelUp:
+			e = tcell.NewEventKey(tcell.KeyRune, 'k', 0)
+		}
+		if e != nil {
+			u.t.HandleEvent(e)
+			u.t.Draw()
+		}
 	case *tcell.EventKey:
 		switch {
 		case ev.Rune() == '^':
