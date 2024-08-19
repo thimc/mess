@@ -10,9 +10,8 @@ version of the less binary backed up on your system.
 *Note: mess makes heavy use of the mblaze programs so it goes without
 saying that you need to have mblaze installed to use mess.*
 
-**NOTE: While mess works as expected (most of the time) it's still
-in its early days, there are still a lot of things to clean up and
-get right. Be warned**
+**Mess at this point is just a proof of concept and should be treated
+as such.**
 
 ## Keybindings
 
@@ -30,7 +29,7 @@ are there, I have also added some for convenience.
 
 `D` prompts the current message for deletion
 
-`G` / `Home` to scroll to the top
+`g` / `Home` to scroll to the top
 
 `H` toggles forces the mail to be rendered in HTML mode
 
@@ -50,7 +49,7 @@ are there, I have also added some for convenience.
 
 `f` opens the `$EDITOR` and runs mfwd, to forward a mail
 
-`g` / `End` to scroll the current mail to the bottom
+`G` / `End` to scroll the current mail to the bottom
 
 `j` / `Arrow down` / `Enter` scrolls the current mail one line down
 
