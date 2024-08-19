@@ -73,16 +73,14 @@ func scanfmt(dot int) string {
 }
 
 type UI struct {
-	s       tcell.Screen
-	v       *views.ViewPort
-	tv      *views.ViewPort
-	p       *views.TextArea
-	t       *tcellterm.VT
-	dot     int
-	curmail []string
-	poffset int
-	html    bool
-	raw     bool
+	s    tcell.Screen
+	v    *views.ViewPort // mscan
+	tv   *views.ViewPort // terminal
+	p    *views.TextArea
+	t    *tcellterm.VT
+	dot  int
+	html bool
+	raw  bool
 }
 
 // NewUI creates a new user interface
@@ -122,7 +120,7 @@ func (u *UI) displaymail() error {
 	if pager == "" || pager == "less" {
 		pager = "less -R"
 	}
-	cmd := exec.Command("mshow")
+	cmd := exec.Command("mshow", ".")
 	cmd.Env = append(os.Environ(), "MBLAZE_PAGER="+pager)
 	if u.t != nil {
 		u.t.Close()
@@ -189,30 +187,14 @@ func (u *UI) update(ev tcell.Event) {
 		u.t.Draw()
 	case *tcell.EventKey:
 		switch {
-		case ev.Rune() == '{':
-			for i := u.poffset - 1; i != 0; i-- {
-				if u.curmail[i] == "" {
-					u.poffset = i
-					break
-				}
-			}
-		case ev.Rune() == '}':
-			for i := u.poffset + 1; i != len(u.curmail)-1; i++ {
-				if u.curmail[i] == "" {
-					u.poffset = i
-					break
-				}
-			}
 		case ev.Rune() == '^':
 			runCmd("mseq", "-C", ".^")
 		case ev.Rune() == '0':
 			_, _ = runCmd("mseq", "-C", "1")
-			u.poffset = 0
 			u.displaymail()
 		case ev.Rune() == '$':
 			tot := total()
 			_, _ = runCmd("mseq", "-C", fmt.Sprint(tot))
-			u.poffset = tot
 			u.displaymail()
 		case ev.Rune() == 'c':
 			u.execCmd("mcom")
@@ -262,12 +244,10 @@ func (u *UI) update(ev tcell.Event) {
 			u.html = !u.html
 			return
 		case ev.Rune() == 'J':
-			u.poffset = 0
 			runCmd("mseq", "-C", ".+1")
 			u.displaymail()
 			return
 		case ev.Rune() == 'K':
-			u.poffset = 0
 			runCmd("mseq", "-C", ".-1")
 			u.displaymail()
 			return
@@ -286,28 +266,6 @@ func (u *UI) update(ev tcell.Event) {
 			buf, _ := c.Output()
 			output := strings.TrimSuffix(string(buf), "\n")
 			runCmd("mseq", "-C", output)
-			return
-		case ev.Key() == tcell.KeyCtrlD, ev.Key() == tcell.KeyPgDn:
-			_, pg := u.s.Size()
-			pg -= limit - 1
-			max := len(u.curmail) - limit - 1
-			if max < 0 {
-				max = 0
-			}
-			if u.poffset+pg >= max {
-				u.poffset = max
-			} else {
-				u.poffset += pg
-			}
-			return
-		case ev.Key() == tcell.KeyCtrlU, ev.Key() == tcell.KeyPgUp:
-			_, pg := u.s.Size()
-			pg -= limit - 1
-			if u.poffset-pg <= 0 {
-				u.poffset = 0
-			} else {
-				u.poffset -= pg
-			}
 			return
 		case ev.Key() == tcell.KeyCtrlL:
 			u.s.Clear()
