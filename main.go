@@ -120,7 +120,7 @@ func (u *UI) displaymail() error {
 	if pager == "" || pager == "less" {
 		pager = "less -R"
 	}
-	var args []string
+	var args = strings.Split(mshowArgs, " ")
 	if u.raw {
 		args = append(args, "-H", "-r")
 		// TODO(thimc): the -r flag causes mshow to print its output
