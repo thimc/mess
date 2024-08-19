@@ -124,7 +124,6 @@ func (u *UI) displaymail() error {
 	cmd.Env = append(os.Environ(), "MBLAZE_PAGER="+pager)
 	if u.t != nil {
 		u.t.Close()
-		u.t.Detach()
 	}
 	u.initterm()
 	if err := u.t.Start(cmd); err != nil {
@@ -242,6 +241,7 @@ func (u *UI) update(ev tcell.Event) {
 			return
 		case ev.Rune() == 'H':
 			u.html = !u.html
+			u.displaymail()
 			return
 		case ev.Rune() == 'J':
 			runCmd("mseq", "-C", ".+1")
@@ -254,6 +254,7 @@ func (u *UI) update(ev tcell.Event) {
 		case ev.Rune() == 'N':
 			unseen, _ := runCmd("magrep", "-v", "-m1", ":S", ".:")
 			runCmd("mseq", "-C", unseen[0])
+			u.displaymail()
 			return
 		case ev.Rune() == 'R':
 			u.raw = !u.raw
@@ -266,6 +267,7 @@ func (u *UI) update(ev tcell.Event) {
 			buf, _ := c.Output()
 			output := strings.TrimSuffix(string(buf), "\n")
 			runCmd("mseq", "-C", output)
+			u.displaymail()
 			return
 		case ev.Key() == tcell.KeyCtrlL:
 			u.s.Clear()
