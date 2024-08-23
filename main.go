@@ -2,6 +2,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -23,6 +24,8 @@ var (
 	style        = styleDefault
 
 	mshowArgs = os.Getenv("MSHOW_ARGS")
+
+	mouseflag = flag.Bool("mouse", true, "enables mouse support")
 )
 
 type point struct{ x, y int }
@@ -44,13 +47,6 @@ func drawString(s tcell.Screen, p *point, str string, ml bool) {
 	}
 }
 
-// total returns the amount of mails in the current sequence
-func total() int {
-	total, err := cmdtoi("mscan", "-n", "--", "-1")
-	_ = err
-	return total + 1
-}
-
 // scanfmt determines how the mscan format should be printed.
 //
 // TODO(thimc): Calculate how the range should be defined rather
@@ -61,11 +57,11 @@ func scanfmt(dot int) string {
 		return ".-0:.+5"
 	case 2:
 		return ".-1:.+4"
-	case total() - 2:
+	case limit - 2:
 		return ".-3:.+2"
-	case total() - 1:
+	case limit - 1:
 		return ".-4:.+1"
-	case total():
+	case limit:
 		return ".-5:.+1"
 	default:
 		return ".-2:.+3"
@@ -78,7 +74,6 @@ type UI struct {
 	tv   *views.ViewPort // terminal
 	p    *views.TextArea
 	t    *tcellterm.VT
-	dot  int
 	html bool
 	raw  bool
 }
@@ -94,15 +89,14 @@ func NewUI(style tcell.Style) (*UI, error) {
 	}
 	s.SetStyle(style)
 	u := &UI{s: s}
-	u.s.EnableMouse()
+	if *mouseflag {
+		u.s.EnableMouse()
+	}
 	u.v = views.NewViewPort(u.s, 0, 0, -1, 5)
 	u.p = views.NewTextArea()
 	u.p.SetView(u.v)
-
 	u.initterm()
-	u.displaymail()
-
-	return u, nil
+	return u, u.displaymail()
 }
 
 // initterm initializes the virtual terminal
@@ -136,10 +130,21 @@ func (u *UI) displaymail() error {
 		u.t.Close()
 	}
 	u.initterm()
-	if err := u.t.Start(cmd); err != nil {
-		return err
-	}
-	return nil
+	return u.t.Start(cmd)
+}
+
+func (u *UI) errorf(format string, v ...any) {
+	u.s.Clear()
+	var (
+		msg        = "Error"
+		string     = fmt.Sprintf(format, v...)
+		wmax, hmax = u.s.Size()
+	)
+	u.s.SetStyle(styleError)
+	drawString(u.s, &point{(wmax - len(msg)) / 2, hmax/2 - 1}, msg, true)
+	u.s.SetStyle(styleDefault)
+	drawString(u.s, &point{(wmax - len(string)) / 2, hmax / 2}, string, true)
+	u.s.Show()
 }
 
 // Run runs the UI for one frame, it returns io.EOF when the user has
@@ -147,22 +152,29 @@ func (u *UI) displaymail() error {
 // rendering them on the screen.
 func (u *UI) Run() {
 	for {
-
 		dot, err := cmdtoi("mscan", "-n", ".")
-		_ = err
+		if err != nil {
+			u.errorf("mscan: %s", err)
+			continue
+		}
 		out, err := runCmd("mscan", []string{scanfmt(dot)}...)
-		_ = err
+		if err != nil {
+			u.errorf("mscan: %s", err)
+			continue
+		}
+		// TODO(thimc): Pipe output to something similar to mless
+		// "colorscan" function that colorizes the output. Respect
+		// the NO_COLOR environment variable.
 		u.p.SetContent(strings.Join(out, "\n"))
-
 		u.p.Draw()
 		u.t.Draw()
 		u.s.Show()
-
 		ev := u.s.PollEvent()
 		if ev == nil {
 			break
 		}
 		u.update(ev)
+		continue
 	}
 }
 
@@ -177,6 +189,7 @@ func (u *UI) Exit() {
 
 // refresh refreshes the mailbox sequence
 func (u *UI) refresh() error {
+	defer u.displaymail()
 	mails, err := runCmd("mseq", "-f", ":")
 	if err != nil {
 		return err
@@ -188,11 +201,12 @@ func (u *UI) refresh() error {
 }
 
 // update handles the user input;
-func (u *UI) update(ev tcell.Event) {
+func (u *UI) update(ev tcell.Event) error {
 	switch ev := ev.(type) {
 	case *tcell.EventResize:
 		u.s.Sync()
 	case *tcellterm.EventRedraw:
+		u.p.Draw()
 		u.t.Draw()
 	case *tcell.EventMouse:
 		var e *tcell.EventKey
@@ -204,36 +218,54 @@ func (u *UI) update(ev tcell.Event) {
 		}
 		if e != nil {
 			u.t.HandleEvent(e)
-			u.t.Draw()
+			return nil
 		}
 	case *tcell.EventKey:
 		switch {
 		case ev.Rune() == '^':
-			runCmd("mseq", "-C", ".^")
+			_, err := runCmd("mseq", "-C", ".^")
+			return err
 		case ev.Rune() == '0':
-			_, _ = runCmd("mseq", "-C", "1")
-			u.displaymail()
+			if _, err := runCmd("mseq", "-C", "1"); err != nil {
+				return err
+			}
+			return u.displaymail()
 		case ev.Rune() == '$':
-			tot := total()
-			_, _ = runCmd("mseq", "-C", fmt.Sprint(tot))
-			u.displaymail()
+			total, err := cmdtoi("mscan", "-n", "--", "-1")
+			if err != nil {
+				return err
+			}
+			if _, err := runCmd("mseq", "-C", fmt.Sprint(total)); err != nil {
+				return err
+			}
+			return u.displaymail()
 		case ev.Rune() == 'c':
-			u.execCmd("mcom")
+			return u.execCmd("mcom")
 		case ev.Rune() == 'd':
-			runCmd("mflag", "-S", ".")
-			u.refresh()
-			runCmd("mseq", "-C", "+")
+			if _, err := runCmd("mflag", "-S", "."); err != nil {
+				return err
+			}
+			if err := u.refresh(); err != nil {
+				return err
+			}
+			_, err := runCmd("mseq", "-C", "+")
+			return err
 		case ev.Rune() == 'f':
-			u.execCmd("mfwd")
+			return u.execCmd("mfwd")
 		case ev.Rune() == 'q':
 			u.Exit()
 		case ev.Rune() == 'r':
-			u.execCmd("mrep")
-			return
+			return u.execCmd("mrep")
 		case ev.Rune() == 'u':
-			runCmd("mflag", "-s", ".")
-			u.refresh()
-			runCmd("mseq", "-C", "+")
+			_, err := runCmd("mflag", "-s", ".")
+			if err != nil {
+				return err
+			}
+			if err := u.refresh(); err != nil {
+				return err
+			}
+			_, err = runCmd("mseq", "-C", "+")
+			return err
 		case ev.Rune() == 'D', ev.Key() == tcell.KeyDelete:
 			var delete bool
 		prompt:
@@ -255,52 +287,69 @@ func (u *UI) update(ev tcell.Event) {
 				}
 			}
 			if delete {
-				curr, _ := runCmd("mseq", ".")
+				curr, err := runCmd("mseq", ".")
+				if err != nil {
+					return err
+				}
+				_ = err
 				defer os.Remove(curr[0])
-				runCmd("mseq", "-C", "+")
-				u.refresh()
+				if _, err := runCmd("mseq", "-C", "+"); err != nil {
+					return err
+				}
+				return u.refresh()
 			}
-			return
+			return nil
 		case ev.Rune() == 'H':
 			u.html = !u.html
-			u.displaymail()
-			return
+			return u.displaymail()
 		case ev.Rune() == 'J':
-			runCmd("mseq", "-C", ".+1")
-			u.displaymail()
-			return
+			if _, err := runCmd("mseq", "-C", ".+1"); err != nil {
+				return nil
+			}
+			return u.displaymail()
 		case ev.Rune() == 'K':
-			runCmd("mseq", "-C", ".-1")
-			u.displaymail()
-			return
+			if _, err := runCmd("mseq", "-C", ".-1"); err != nil {
+				return err
+			}
+			return u.displaymail()
 		case ev.Rune() == 'N':
-			unseen, _ := runCmd("magrep", "-v", "-m1", ":S", ".:")
-			runCmd("mseq", "-C", unseen[0])
-			u.displaymail()
-			return
+			unseen, err := runCmd("magrep", "-v", "-m1", ":S", ".:")
+			if err != nil {
+				return err
+			}
+			if _, err := runCmd("mseq", "-C", unseen[0]); err != nil {
+				return err
+			}
+			return u.refresh()
 		case ev.Rune() == 'R':
 			u.raw = !u.raw
-			u.displaymail()
-			return
+			return u.displaymail()
 		case ev.Rune() == 'T':
-			mails, _ := runCmd("mseq", ".+1:")
+			mails, err := runCmd("mseq", ".+1:")
+			if err != nil {
+				return err
+			}
 			c := exec.Command("sed", "-n", "/^[^ <]/{p;q;}")
 			c.Env = os.Environ()
 			c.Stdin = strings.NewReader(strings.Join(mails, "\n"))
-			buf, _ := c.Output()
+			buf, err := c.Output()
+			if err != nil {
+				return err
+			}
 			output := strings.TrimSuffix(string(buf), "\n")
-			runCmd("mseq", "-C", output)
-			u.displaymail()
-			return
+			if _, err := runCmd("mseq", "-C", output); err != nil {
+				return err
+			}
+			return u.displaymail()
 		case ev.Key() == tcell.KeyCtrlL:
 			u.s.Clear()
-			return
+			return nil
 		}
 		if u.t != nil {
 			u.t.HandleEvent(ev)
-			u.t.Draw()
 		}
 	}
+	return nil
 }
 
 // cmdtoi wraps runCmd and parses the output as an integer.
@@ -324,8 +373,11 @@ func runCmd(cmd string, args ...string) ([]string, error) {
 	c := exec.Command(cmd, args...)
 	c.Env = os.Environ()
 	buf, err := c.Output()
+	if err != nil {
+		return nil, err
+	}
 	output := strings.TrimSuffix(string(buf), "\n")
-	return strings.Split(output, "\n"), err
+	return strings.Split(output, "\n"), nil
 }
 
 // execCmd susepnds the user interface and runs the cmd.
@@ -343,6 +395,7 @@ func (u *UI) execCmd(cmd string, args ...string) error {
 }
 
 func main() {
+	flag.Parse()
 	ui, err := NewUI(styleDefault)
 	if err != nil {
 		panic(err)
