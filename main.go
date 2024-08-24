@@ -135,7 +135,13 @@ func (u *UI) mshow() error {
 		if err != nil {
 			return err
 		}
-		cmd = exec.Command("less", []string{"-R", fname[0]}...)
+		p := strings.Split(pager, " ")
+		var a []string
+		if len(p) > 1 {
+			a = append(a, p[1:]...)
+		}
+		a = append(a, fname[0])
+		cmd = exec.Command(p[0], a...)
 	} else {
 		if u.html {
 			args = append(args, "-A", "text/html")
