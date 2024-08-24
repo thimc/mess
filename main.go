@@ -15,14 +15,12 @@ import (
 )
 
 var (
-	// limit determines how many messages there will be in the overview (mscan output)
-	// TODO(thimc): We are currently limited to using 5 because of the implementation of [scanfmt].
-	limit = 5
-
 	styleDefault = tcell.StyleDefault.Background(tcell.ColorReset).Foreground(tcell.ColorReset)
 	styleError   = styleDefault.Reverse(true)
 	style        = styleDefault
 
+	// TODO(thimc): We are currently limited to using 5 because of the implementation of [scanfmt].
+	limitflag = flag.Int("limit", 5, "amount of mails to be previewed in mscan")
 	mouseflag = flag.Bool("mouse", true, "enables mouse support")
 )
 
@@ -49,33 +47,41 @@ func drawString(s tcell.Screen, p *point, str string, multiline bool) {
 //
 // TODO(thimc): Calculate how the range should be defined rather
 // than using hard coded values.
-func scanfmt(dot int) (string, error) {
-	total, err := cmdtoi("mscan", "-n", "--", "-1")
+func (u *UI) scanfmt() (string, error) {
+	var err error
+	u.total, err = cmdtoi("mscan", "-n", "--", "-1")
 	if err != nil {
 		return "", err
 	}
-	switch dot {
+	var s string
+	switch u.dot {
 	case 1:
-		return ".-0:.+5", nil
+		s = ".-0:.+5"
 	case 2:
-		return ".-1:.+4", nil
-	case total - 2:
-		return ".-3:.+2", nil
-	case total - 1:
-		return ".-4:.+1", nil
-	case total:
-		return ".-5:.+0", nil
+		s = ".-1:.+4"
+	case u.total - 2:
+		s = ".-3:.+2"
+	case u.total - 1:
+		s = ".-4:.+1"
+	case u.total:
+		s = ".-5:.+0"
 	default:
-		return ".-2:.+3", nil
+		s = ".-2:.+3"
 	}
+	return s, nil
 }
 
 type UI struct {
-	s    tcell.Screen
-	v    *views.ViewPort // mscan view
-	tv   *views.ViewPort // mshow view
-	p    *views.TextArea
-	t    *tcellterm.VT
+	s  tcell.Screen
+	v  *views.ViewPort // mscan view
+	tv *views.ViewPort // mshow view
+	p  *views.TextArea
+	t  *tcellterm.VT
+
+	dot      int
+	total    int
+	rangefmt string
+
 	html bool // Assume the mail is HTML
 	raw  bool // Print the raw file
 }
@@ -95,17 +101,19 @@ func NewUI(style tcell.Style) (*UI, error) {
 	if *mouseflag {
 		u.s.EnableMouse()
 	}
-	u.v = views.NewViewPort(u.s, 0, 0, -1, limit+1)
+	u.v = views.NewViewPort(u.s, 0, 0, -1, *limitflag+1)
 	u.p = views.NewTextArea()
 	u.p.SetView(u.v)
-	u.initterm()
+	u.setupterm()
 	return u, u.mshow()
 }
 
-// initterm initializes the virtual terminal
-func (u *UI) initterm() {
+// setupterm initializes the virtual terminal which runs a process
+// that renders a mail.
+func (u *UI) setupterm() {
 	u.t = tcellterm.New()
-	u.tv = views.NewViewPort(u.s, 0, limit+1, -1, -1)
+	_, h := u.v.Size()
+	u.tv = views.NewViewPort(u.s, 0, h, -1, -1)
 	u.t.SetSurface(u.tv)
 	u.t.Attach(func(ev tcell.Event) { u.s.PostEvent(ev) })
 }
@@ -117,25 +125,30 @@ func (u *UI) mshow() error {
 		pager     = os.Getenv("PAGER")
 		mshowArgs = os.Getenv("MSHOW_ARGS")
 		args      = strings.Split(mshowArgs, " ")
+		cmd       *exec.Cmd
 	)
 	if pager == "" || pager == "less" {
 		pager = "less -R"
 	}
 	if u.raw {
-		args = append(args, "-H", "-r")
-		// TODO(thimc): the -r flag causes mshow to print its output
-		// directly to standard output and not to less / MBLAZE_PAGER
-		// so we have to pipe the output to less manually.
-	} else if u.html {
-		args = append(args, "-A", "text/html")
+		fname, err := runCmd("mseq", ".")
+		if err != nil {
+			return err
+		}
+		cmd = exec.Command("less", []string{"-R", fname[0]}...)
+	} else {
+		if u.html {
+			args = append(args, "-A", "text/html")
+		}
+		cmd = exec.Command("mshow", args...)
 	}
+	args = append(args, "COLUMNS=99999999")
 	args = append(args, ".")
-	cmd := exec.Command("mshow", args...)
 	cmd.Env = append(os.Environ(), "MBLAZE_PAGER="+pager)
 	if u.t != nil {
 		u.t.Close()
 	}
-	u.initterm()
+	u.setupterm()
 	return u.t.Start(cmd)
 }
 
@@ -157,18 +170,19 @@ func (u *UI) errorf(format string, v ...any) {
 // requested the program to exit. Any other error is handled by
 // rendering them on the screen.
 func (u *UI) Run() {
+	var err error
 	for {
-		dot, err := cmdtoi("mscan", "-n", ".")
+		u.dot, err = cmdtoi("mscan", "-n", ".")
 		if err != nil {
 			u.errorf("mscan: %s", err)
 			continue
 		}
-		rangefmt, err := scanfmt(dot)
+		u.rangefmt, err = u.scanfmt()
 		if err != nil {
 			u.errorf("scanfmt: %s", err)
 			continue
 		}
-		out, err := runCmd("mscan", []string{rangefmt}...)
+		lines, err := runCmd("mscan", []string{u.rangefmt}...)
 		if err != nil {
 			u.errorf("mscan: %s", err)
 			continue
@@ -176,7 +190,7 @@ func (u *UI) Run() {
 		// TODO(thimc): Pipe output to something similar to mless
 		// "colorscan" function that colorizes the output. Respect
 		// the NO_COLOR environment variable.
-		u.p.SetContent(strings.Join(out, "\n"))
+		u.p.SetContent(strings.Join(lines, "\n"))
 		u.p.Draw()
 		u.t.Draw()
 		u.s.Show()
@@ -185,7 +199,6 @@ func (u *UI) Run() {
 			break
 		}
 		u.update(ev)
-		continue
 	}
 }
 
@@ -315,7 +328,7 @@ func (u *UI) update(ev tcell.Event) error {
 			return u.mshow()
 		case ev.Rune() == 'J':
 			if _, err := runCmd("mseq", "-C", ".+1"); err != nil {
-				return nil
+				return err
 			}
 			return u.mshow()
 		case ev.Rune() == 'K':
@@ -412,7 +425,5 @@ func main() {
 		panic(err)
 	}
 	defer ui.Exit()
-	for {
-		ui.Run()
-	}
+	ui.Run()
 }
