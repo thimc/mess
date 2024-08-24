@@ -2,8 +2,11 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"os/exec"
 	"strconv"
@@ -426,6 +429,25 @@ func (u *UI) execCmd(cmd string, args ...string) error {
 
 func main() {
 	flag.Parse()
+	f := os.Stdin
+	fi, err := f.Stat()
+	if err != nil {
+		log.Fatalln(err)
+	}
+	if (fi.Mode() & os.ModeCharDevice) < 1 {
+		buf, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		cmd := exec.Command("mseq", "-S")
+		cmd.Stdin = bytes.NewBuffer(buf)
+		if err := cmd.Run(); err != nil {
+			log.Fatalf("mseq -S: %q", err)
+		}
+		if _, err := runCmd("mseq", "-C", "1"); err != nil {
+			log.Fatalf("mseq -C 1: %q", err)
+		}
+	}
 	ui, err := NewUI(styleDefault)
 	if err != nil {
 		panic(err)
