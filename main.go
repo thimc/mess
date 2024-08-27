@@ -173,6 +173,18 @@ func (u *UI) errorf(format string, v ...any) {
 	u.s.SetStyle(styleDefault)
 	drawString(u.s, &point{(wmax - len(string)) / 2, hmax / 2}, string, true)
 	u.s.Show()
+loop:
+	for {
+		ev := u.s.PollEvent()
+		if ev == nil {
+			break loop
+		}
+		switch ev.(type) {
+		case *tcell.EventKey:
+			break loop
+		}
+	}
+	u.Exit()
 }
 
 // Run runs the UI for one frame, it returns io.EOF when the user has
@@ -180,6 +192,7 @@ func (u *UI) errorf(format string, v ...any) {
 // rendering them on the screen.
 func (u *UI) Run() {
 	var err error
+	defer u.Exit()
 	for {
 		u.dot, err = cmdtoi("mscan", "-n", ".")
 		if err != nil {
@@ -203,6 +216,7 @@ func (u *UI) Run() {
 		u.p.Draw()
 		u.t.Draw()
 		u.s.Show()
+
 		ev := u.s.PollEvent()
 		if ev == nil {
 			break
@@ -435,7 +449,7 @@ func main() {
 		log.Fatalln(err)
 	}
 	if (fi.Mode() & os.ModeCharDevice) < 1 {
-		buf, err := io.ReadAll(os.Stdin)
+		buf, err := io.ReadAll(f)
 		if err != nil {
 			log.Fatalln(err)
 		}
@@ -452,6 +466,5 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	defer ui.Exit()
 	ui.Run()
 }
