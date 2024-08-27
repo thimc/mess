@@ -20,7 +20,6 @@ import (
 var (
 	styleDefault = tcell.StyleDefault.Background(tcell.ColorReset).Foreground(tcell.ColorReset)
 	styleError   = styleDefault.Reverse(true)
-	style        = styleDefault
 
 	// TODO(thimc): We are currently limited to using 5 because of the implementation of [scanfmt].
 	limitflag = flag.Int("limit", 5, "amount of mails to be previewed in mscan")
@@ -29,7 +28,7 @@ var (
 
 type point struct{ x, y int }
 
-func drawString(s tcell.Screen, p *point, str string, multiline bool) {
+func draw(s tcell.Screen, p *point, style tcell.Style, str string, multiline bool) {
 	w, h := s.Size()
 	if p.y >= h {
 		return
@@ -146,8 +145,6 @@ func (u *UI) mshow() error {
 		}
 		cmd = exec.Command("mshow", args...)
 	}
-	args = append(args, "COLUMNS=99999999")
-	args = append(args, ".")
 	cmd.Env = append(os.Environ(), "MBLAZE_PAGER="+pager)
 	if u.t != nil {
 		u.t.Close()
@@ -163,10 +160,8 @@ func (u *UI) errorf(format string, v ...any) {
 		string     = fmt.Sprintf(format, v...)
 		wmax, hmax = u.s.Size()
 	)
-	u.s.SetStyle(styleError)
-	drawString(u.s, &point{(wmax - len(msg)) / 2, hmax/2 - 1}, msg, true)
-	u.s.SetStyle(styleDefault)
-	drawString(u.s, &point{(wmax - len(string)) / 2, hmax / 2}, string, true)
+	draw(u.s, &point{(wmax - len(msg)) / 2, hmax/2 - 1}, styleError, msg, true)
+	draw(u.s, &point{(wmax - len(string)) / 2, hmax / 2}, styleDefault, string, true)
 	u.s.Show()
 loop:
 	for {
@@ -313,15 +308,11 @@ func (u *UI) update(ev tcell.Event) error {
 			for {
 				wmax, hmax := u.s.Size()
 				for x := range wmax {
-					u.s.SetContent(x, hmax-1, ' ', nil, style)
+					u.s.SetContent(x, hmax-1, ' ', nil, styleDefault)
 				}
-				style = styleError
-				drawString(u.s, &point{x: 0, y: hmax - 1}, "Delete the selected mail? (y/N)", false)
-				style = styleDefault
+				draw(u.s, &point{x: 0, y: hmax - 1}, styleError, "Delete the selected mail? (y/N)", false)
 				u.s.Show()
 				switch e := u.s.PollEvent(); e := e.(type) {
-				case *tcell.EventResize:
-					continue
 				case *tcell.EventKey:
 					delete = e.Rune() == 'y' || e.Rune() == 'Y'
 					break prompt
@@ -332,10 +323,10 @@ func (u *UI) update(ev tcell.Event) error {
 				if err != nil {
 					return err
 				}
-				defer os.Remove(curr[0])
-				if err := u.update(tcell.NewEventKey(tcell.KeyRune, 'J', 0)); err != nil {
+				if err := os.Remove(curr[0]); err != nil {
 					return err
 				}
+				defer u.update(tcell.NewEventKey(tcell.KeyRune, 'J', 0))
 				return u.mseq()
 			}
 			return nil
