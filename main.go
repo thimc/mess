@@ -225,7 +225,6 @@ func (u *UI) Exit() {
 }
 
 func (u *UI) mseq() error {
-	defer u.mshow()
 	mails, err := u.runCmd(true, "mseq", "-f", ":")
 	if err != nil {
 		return err
@@ -283,7 +282,8 @@ func (u *UI) update(ev tcell.Event) error {
 			if err := u.mseq(); err != nil {
 				return err
 			}
-			return u.update(tcell.NewEventKey(tcell.KeyRune, 'J', 0))
+			_, err := u.runCmd(true, "mseq", "-C", "+")
+			return err
 		case ev.Rune() == 'f':
 			_, err := u.runCmd(false, "mfwd")
 			return err
@@ -300,7 +300,8 @@ func (u *UI) update(ev tcell.Event) error {
 			if err := u.mseq(); err != nil {
 				return err
 			}
-			return u.update(tcell.NewEventKey(tcell.KeyRune, 'J', 0))
+			_, err = u.runCmd(true, "mseq", "-C", "+")
+			return err
 		case ev.Rune() == 'D', ev.Key() == tcell.KeyDelete:
 			var delete bool
 		prompt:
@@ -326,7 +327,7 @@ func (u *UI) update(ev tcell.Event) error {
 					return err
 				}
 				defer u.update(tcell.NewEventKey(tcell.KeyRune, 'J', 0))
-				return u.mseq()
+				return u.mshow()
 			}
 			return nil
 		case ev.Rune() == 'H':
@@ -350,7 +351,7 @@ func (u *UI) update(ev tcell.Event) error {
 			if _, err := u.runCmd(true, "mseq", "-C", unseen[0]); err != nil {
 				return err
 			}
-			return u.mseq()
+			return u.mshow()
 		case ev.Rune() == 'R':
 			u.raw = !u.raw
 			return u.mshow()
