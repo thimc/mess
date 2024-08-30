@@ -12,51 +12,42 @@ saying that you need to have mblaze installed to use mess.*
 
 ## Keybindings
 
-Most of the key binds you would expect from
-[mless](https://github.com/leahneukirchen/mblaze/blob/master/man/mless.1)
-are there, I have also added some for convenience.
+Mess uses `$PAGER` to display the current mail, some keybindings
+(the list below) are handled by mess, any other key is passed to
+the program drawing the mail itself.
 
-`$` to go to the last message
+`^` go to the parent mail in a mail thread.
 
-`0` to go to the first message
+`0` go to the first message.
 
-`D` prompts the current message for deletion
+`$` go to the last message.
 
-`g` / `Home` to scroll to the top
+`c` compose a new mail using mcom (which utilizes `$EDITOR`).
 
-`H` toggles forces the mail to be rendered in HTML mode
+`d` mark the current mail as read.
 
-`J` goes to next mail
+`f` forward the current mail using mfwd.
 
-`K` goes to previous mail
+`q` to quit.
 
-`N` to go to the next unseen message
+`r` reply the current mail using mrep.
 
-`R` toggles the raw mode which prints the files content without any rendering.
+`u` mark the current mail as unread.
 
-`^` goto the parent mail
+`D` / `Delete` delete the current message (the user will be given
+a prompt before any changes are actually made on disk).
 
-`c` opens the `$EDITOR` and lets the user compose a new mail
+`H` force render the mail as a `text/html` mail.
 
-`d` marks the current message as read
+`J` go to the next mail.
 
-`f` opens the `$EDITOR` and runs mfwd, to forward a mail
+`K` go to the previous mail.
 
-`G` / `End` to scroll the current mail to the bottom
+`N` go to the next unseen mail.
 
-`j` / `Arrow down` / `Enter` scrolls the current mail one line down
+`R` print the raw file contents of the mail instead of rendering it via mshow.
 
-`k` / `Arrow up` scrolls the current mail one line up
-
-`r` opens the `$EDITOR` and runs mrep, to reply to a mail
-
-`u` marks the current message as unread
-
-`q` to quit
-
-`Ctrl+d` / `Page Down` to scroll the mail one page down
-
-`Ctrl+u` / `Page Up` to scroll the mail one page up
+`T` go to the next mail thread.
 
 ## License
 
