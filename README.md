@@ -10,9 +10,6 @@ version of the less binary backed up on your system.
 *Note: mess makes heavy use of the mblaze programs so it goes without
 saying that you need to have mblaze installed to use mess.*
 
-**Mess at this point is just a proof of concept and should be treated
-as such.**
-
 ## Keybindings
 
 Most of the key binds you would expect from
