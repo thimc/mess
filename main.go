@@ -45,34 +45,6 @@ func draw(s tcell.Screen, p *point, style tcell.Style, str string, multiline boo
 	}
 }
 
-// scanfmt determines how the mscan format should be printed.
-//
-// TODO(thimc): Calculate how the range should be defined rather
-// than using hard coded values.
-func (u *UI) scanfmt() (string, error) {
-	var err error
-	u.total, err = u.cmdtoi("mscan", "-n", "--", "-1")
-	if err != nil {
-		return "", err
-	}
-	var s string
-	switch u.dot {
-	case 1:
-		s = ".-0:.+5"
-	case 2:
-		s = ".-1:.+4"
-	case u.total - 2:
-		s = ".-3:.+2"
-	case u.total - 1:
-		s = ".-4:.+1"
-	case u.total:
-		s = ".-5:.+0"
-	default:
-		s = ".-2:.+3"
-	}
-	return s, nil
-}
-
 type UI struct {
 	s  tcell.Screen
 	v  *views.ViewPort // mscan view
@@ -153,11 +125,11 @@ func (u *UI) mshow() error {
 	return u.t.Start(cmd)
 }
 
-func (u *UI) errorf(format string, v ...any) {
+func (u *UI) error(err error) {
 	u.s.Clear()
 	var (
 		msg        = "Error"
-		string     = fmt.Sprintf(format, v...)
+		string     = err.Error()
 		wmax, hmax = u.s.Size()
 	)
 	draw(u.s, &point{(wmax - len(msg)) / 2, hmax/2 - 1}, styleError, msg, true)
@@ -174,7 +146,34 @@ loop:
 			break loop
 		}
 	}
-	u.Exit()
+}
+
+// scanfmt determines how the mscan format should be printed.
+//
+// TODO(thimc): Calculate how the range should be defined rather
+// than using hard coded values.
+func (u *UI) scanfmt() (string, error) {
+	var err error
+	u.total, err = u.cmdtoi("mscan", "-n", "--", "-1")
+	if err != nil {
+		return "", err
+	}
+	var s string
+	switch u.dot {
+	case 1:
+		s = ".-0:.+5"
+	case 2:
+		s = ".-1:.+4"
+	case u.total - 2:
+		s = ".-3:.+2"
+	case u.total - 1:
+		s = ".-4:.+1"
+	case u.total:
+		s = ".-5:.+0"
+	default:
+		s = ".-2:.+3"
+	}
+	return s, nil
 }
 
 func (u *UI) mscan() error {
@@ -190,7 +189,7 @@ func (u *UI) mscan() error {
 	if err != nil {
 		return fmt.Errorf("scanfmt: %s", err)
 	}
-	lines, err = u.runCmd(true, "mscan", []string{u.rangefmt}...)
+	lines, err = u.runCmd(true, "mscan", u.rangefmt)
 	if err != nil {
 		return fmt.Errorf("mscan: %s", err)
 	}
@@ -206,13 +205,13 @@ func (u *UI) Run() {
 	defer u.Exit()
 	for {
 		if err := u.mscan(); err != nil {
-			u.errorf("%s", err)
+			u.error(err)
 		}
 		u.t.Draw()
 		u.s.Show()
 		ev := u.s.PollEvent()
 		if err := u.update(ev); err != nil {
-			u.errorf("%s", err)
+			u.error(err)
 		}
 	}
 }
