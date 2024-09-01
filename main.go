@@ -148,32 +148,30 @@ loop:
 	}
 }
 
-// scanfmt determines how the mscan format should be printed.
-//
-// TODO(thimc): Calculate how the range should be defined rather
-// than using hard coded values.
 func (u *UI) scanfmt() (string, error) {
 	var err error
 	u.total, err = u.cmdtoi("mscan", "-n", "--", "-1")
 	if err != nil {
 		return "", err
 	}
-	var s string
-	switch u.dot {
-	case 1:
-		s = ".-0:.+5"
-	case 2:
-		s = ".-1:.+4"
-	case u.total - 2:
-		s = ".-3:.+2"
-	case u.total - 1:
-		s = ".-4:.+1"
-	case u.total:
-		s = ".-5:.+0"
-	default:
-		s = ".-2:.+3"
+	var (
+		dot    = u.dot - 1
+		total  = u.total - 1
+		limit  = *limitflag
+		before = limit / 2
+		after  = limit - before
+	)
+	if dot <= before {
+		before = dot
+		after = limit - before
+	} else if dot > total-after {
+		after = total - dot
+		before = limit - after
+	} else {
+		before = limit / 2
+		after = limit - before
 	}
-	return s, nil
+	return fmt.Sprintf(".-%d:.+%d", before, after), nil
 }
 
 func (u *UI) mscan() error {
