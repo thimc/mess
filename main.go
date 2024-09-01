@@ -282,8 +282,10 @@ func (u *UI) update(ev tcell.Event) error {
 			if err := u.mseq(); err != nil {
 				return err
 			}
-			_, err := u.runCmd(true, "mseq", "-C", "+")
-			return err
+			if _, err := u.runCmd(true, "mseq", "-C", "+"); err != nil {
+				return err
+			}
+			return u.mshow()
 		case ev.Rune() == 'f':
 			_, err := u.runCmd(false, "mfwd")
 			return err
