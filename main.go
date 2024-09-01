@@ -21,7 +21,6 @@ var (
 	styleDefault = tcell.StyleDefault.Background(tcell.ColorReset).Foreground(tcell.ColorReset)
 	styleError   = styleDefault.Reverse(true)
 
-	// TODO(thimc): We are currently limited to using 5 because of the implementation of [scanfmt].
 	limitflag = flag.Int("limit", 5, "amount of mails to be previewed in mscan")
 	mouseflag = flag.Bool("mouse", true, "enables mouse support")
 )
@@ -324,11 +323,17 @@ func (u *UI) update(ev tcell.Event) error {
 			u.html = !u.html
 			return u.mshow()
 		case ev.Rune() == 'J':
+			if u.dot >= u.total {
+				return nil
+			}
 			if _, err := u.runCmd(true, "mseq", "-C", ".+1"); err != nil {
 				return err
 			}
 			return u.mshow()
 		case ev.Rune() == 'K':
+			if u.dot <= 1 {
+				return nil
+			}
 			if _, err := u.runCmd(true, "mseq", "-C", ".-1"); err != nil {
 				return err
 			}
@@ -411,11 +416,22 @@ func (u *UI) runCmd(bg bool, cmd string, args ...string) ([]string, error) {
 }
 
 func main() {
+	flag.Usage = func() {
+		fmt.Printf("Usage: %s [msg]\n", os.Args[0])
+		flag.PrintDefaults()
+	}
 	flag.Parse()
 	f := os.Stdin
 	fi, err := f.Stat()
 	if err != nil {
 		log.Fatalln(err)
+	}
+	if flag.NArg() > 0 {
+		arg := os.Args[len(os.Args)-1]
+		cmd := exec.Command("mseq", "-C", arg)
+		if err := cmd.Run(); err != nil {
+			log.Fatalf("%s %s: %q", cmd.Path, strings.Join(cmd.Args, " "), err)
+		}
 	}
 	ui, err := NewUI(styleDefault)
 	if err != nil {
