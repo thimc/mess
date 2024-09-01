@@ -126,21 +126,15 @@ func (u *UI) mshow() error {
 }
 
 func (u *UI) error(err error) {
-	u.s.Clear()
-	var (
-		msg        = "Error"
-		string     = err.Error()
-		wmax, hmax = u.s.Size()
-	)
-	draw(u.s, &point{(wmax - len(msg)) / 2, hmax/2 - 1}, styleError, msg, true)
-	draw(u.s, &point{(wmax - len(string)) / 2, hmax / 2}, styleDefault, string, true)
+	wmax, hmax := u.s.Size()
+	for w := range wmax {
+		u.s.SetContent(w, hmax-1, ' ', nil, styleDefault)
+	}
+	draw(u.s, &point{0, hmax - 1}, styleError, err.Error(), true)
 	u.s.Show()
 loop:
 	for {
 		ev := u.s.PollEvent()
-		if ev == nil {
-			break loop
-		}
 		switch ev.(type) {
 		case *tcell.EventKey:
 			break loop
@@ -175,21 +169,18 @@ func (u *UI) scanfmt() (string, error) {
 }
 
 func (u *UI) mscan() error {
-	var (
-		lines []string
-		err   error
-	)
+	var err error
 	u.dot, err = u.cmdtoi("mscan", "-n", ".")
 	if err != nil {
-		return fmt.Errorf("mscan: %q", err)
+		return err
 	}
 	u.rangefmt, err = u.scanfmt()
 	if err != nil {
-		return fmt.Errorf("scanfmt: %s", err)
+		return err
 	}
-	lines, err = u.runCmd(true, "mscan", u.rangefmt)
+	lines, err := u.runCmd(true, "mscan", u.rangefmt)
 	if err != nil {
-		return fmt.Errorf("mscan: %s", err)
+		return err
 	}
 	// TODO(thimc): Pipe output to something similar to the mless
 	// "colorscan" awk function that colorizes the output.
@@ -207,8 +198,7 @@ func (u *UI) Run() {
 		}
 		u.t.Draw()
 		u.s.Show()
-		ev := u.s.PollEvent()
-		if err := u.update(ev); err != nil {
+		if err := u.update(u.s.PollEvent()); err != nil {
 			u.error(err)
 		}
 	}
@@ -235,7 +225,7 @@ func (u *UI) mseq() error {
 
 func (u *UI) update(ev tcell.Event) error {
 	if ev == nil {
-		return fmt.Errorf("nil")
+		return nil
 	}
 	switch ev := ev.(type) {
 	case *tcell.EventResize:
@@ -390,7 +380,7 @@ func (u *UI) cmdtoi(cmd string, args ...string) (int, error) {
 		return -1, err
 	}
 	if len(out) < 1 || strings.Join(out, "\n") == "" {
-		return -1, fmt.Errorf("%v: empty output", cmd)
+		return -1, fmt.Errorf("%s %s: empty output", cmd, strings.Join(args, " "))
 	}
 	n, err := strconv.Atoi(out[0])
 	if err != nil {
@@ -439,10 +429,10 @@ func main() {
 		cmd := exec.Command("mseq", "-S")
 		cmd.Stdin = bytes.NewBuffer(buf)
 		if err := cmd.Run(); err != nil {
-			log.Fatalf("mseq -S: %q", err)
+			log.Fatalf("%s %s: %q", cmd.Path, strings.Join(cmd.Args, " "), err)
 		}
 		if _, err := ui.runCmd(true, "mseq", "-C", "1"); err != nil {
-			log.Fatalf("mseq -C 1: %q", err)
+			log.Fatalf("%s %s: %q", cmd.Path, strings.Join(cmd.Args, " "), err)
 		}
 	}
 	ui.Run()
