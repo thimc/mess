@@ -384,9 +384,6 @@ func (u *UI) cmdtoi(cmd string, args ...string) (int, error) {
 	if err != nil {
 		return -1, err
 	}
-	if len(out) < 1 || strings.Join(out, "\n") == "" {
-		return -1, fmt.Errorf("%s %s: empty output", cmd, strings.Join(args, " "))
-	}
 	n, err := strconv.Atoi(out[0])
 	if err != nil {
 		return -1, err
@@ -443,11 +440,14 @@ func main() {
 			log.Fatalln(err)
 		}
 		cmd := exec.Command("mseq", "-S")
+		cmd.Env = os.Environ()
 		cmd.Stdin = bytes.NewBuffer(buf)
 		if err := cmd.Run(); err != nil {
 			log.Fatalf("%s %s: %q", cmd.Path, strings.Join(cmd.Args, " "), err)
 		}
-		if _, err := ui.runCmd(true, "mseq", "-C", "1"); err != nil {
+		cmd = exec.Command("mseq", "-C", "1")
+		cmd.Env = os.Environ()
+		if err := cmd.Run(); err != nil {
 			log.Fatalf("%s %s: %q", cmd.Path, strings.Join(cmd.Args, " "), err)
 		}
 	}
