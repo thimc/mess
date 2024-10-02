@@ -339,11 +339,12 @@ func (u *UI) update(ev tcell.Event) error {
 			}
 			return u.mshow()
 		case ev.Rune() == 'N':
-			unseen, err := u.runCmd(true, "magrep", "-v", "-m1", ":S", ".:")
+			seq, err := u.runCmd(true, "magrep", "-v", "-m1", ":S", ".:")
 			if err != nil {
 				return err
 			}
-			if _, err := u.runCmd(true, "mseq", "-C", unseen[0]); err != nil {
+			unseen := strings.TrimLeft(seq[0], " ")
+			if _, err := u.runCmd(true, "mseq", []string{"-C", unseen}...); err != nil {
 				return err
 			}
 			return u.mshow()
