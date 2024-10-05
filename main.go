@@ -228,7 +228,12 @@ func (u *UI) update(ev tcell.Event) error {
 	}
 	switch ev := ev.(type) {
 	case *tcell.EventResize:
+		w, h := ev.Size()
+		u.v.Resize(0, 0, w, *limitflag+1)
+		u.tv = views.NewViewPort(u.s, 0, h, w, h)
+		u.t.Resize(u.tv.Size())
 		u.s.Sync()
+		return u.mshow()
 	case *tcellterm.EventRedraw:
 		u.p.Draw()
 		u.t.Draw()
