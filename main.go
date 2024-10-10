@@ -228,15 +228,18 @@ func (u *UI) update(ev tcell.Event) error {
 	}
 	switch ev := ev.(type) {
 	case *tcell.EventResize:
+		// TODO(thimc): handle cases where the new window size
+		// is lesser than *limitflag.
 		w, h := ev.Size()
 		u.v.Resize(0, 0, w, *limitflag+1)
-		u.tv = views.NewViewPort(u.s, 0, h, w, h)
-		u.t.Resize(u.tv.Size())
-		u.s.Sync()
+		u.t.Resize(w, h)
+		if err := u.mscan(); err != nil {
+			return err
+		}
 		return u.mshow()
 	case *tcellterm.EventRedraw:
-		u.p.Draw()
 		u.t.Draw()
+		u.p.Draw()
 	case *tcell.EventMouse:
 		var e *tcell.EventKey
 		switch ev.Buttons() {
