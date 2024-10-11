@@ -76,16 +76,12 @@ func NewUI(style tcell.Style) (*UI, error) {
 	u.v = views.NewViewPort(u.s, 0, 0, -1, *limitflag+1)
 	u.p = views.NewTextArea()
 	u.p.SetView(u.v)
-	u.setupterm()
-	return u, u.mshow()
-}
-
-func (u *UI) setupterm() {
 	u.t = tcellterm.New()
 	_, h := u.v.Size()
 	u.tv = views.NewViewPort(u.s, 0, h, -1, -1)
 	u.t.SetSurface(u.tv)
 	u.t.Attach(func(ev tcell.Event) { u.s.PostEvent(ev) })
+	return u, u.mshow()
 }
 
 func (u *UI) mshow() error {
@@ -117,10 +113,7 @@ func (u *UI) mshow() error {
 		cmd = exec.Command("mshow", args...)
 	}
 	cmd.Env = append(os.Environ(), "MBLAZE_PAGER="+pager)
-	if u.t != nil {
-		u.t.Close()
-	}
-	u.setupterm()
+	u.t.Close()
 	return u.t.Start(cmd)
 }
 
