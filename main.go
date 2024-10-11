@@ -22,7 +22,7 @@ var (
 	styleError   = styleDefault.Reverse(true)
 
 	limitflag = flag.Int("limit", 5, "amount of mails to be previewed in mscan")
-	mouseflag = flag.Bool("mouse", true, "enables mouse support")
+	mouseflag = flag.Bool("mouse", false, "enables mouse support")
 )
 
 type point struct{ x, y int }
