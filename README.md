@@ -32,6 +32,8 @@ the program drawing the mail itself.
 
 `r` reply the current mail using mrep.
 
+`t` go to the previous mail thread.
+
 `u` mark the current mail as unread.
 
 `D` / `Delete` delete the current message (the user will be given

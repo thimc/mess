@@ -359,10 +359,19 @@ func (u *UI) update(ev tcell.Event) error {
 		case ev.Rune() == 'R':
 			u.raw = !u.raw
 			return u.mshow()
-		case ev.Rune() == 'T':
-			mails, err := u.runCmd(true, "mseq", ".+1:")
+		case ev.Rune() == 'T', ev.Rune() == 't':
+			var cmd string = ".+1:"
+			if ev.Rune() == 't' {
+				cmd = "0:.-1"
+			}
+			mails, err := u.runCmd(true, "mseq", cmd)
 			if err != nil {
 				return err
+			}
+			if ev.Rune() == 't' {
+				for i, j := 0, len(mails)-1; i < j; i, j = i+1, j-1 {
+					mails[i], mails[j] = mails[j], mails[i]
+				}
 			}
 			c := exec.Command("sed", "-n", "/^[^ <]/{p;q;}")
 			c.Env = os.Environ()
@@ -376,6 +385,7 @@ func (u *UI) update(ev tcell.Event) error {
 				return err
 			}
 			return u.mshow()
+
 		case ev.Key() == tcell.KeyCtrlL:
 			u.s.Clear()
 			return nil
