@@ -135,8 +135,11 @@ loop:
 }
 
 func (u *UI) scanfmt() (string, error) {
-	var err error
-	u.total, err = u.cmdtoi("mscan", "-n", "--", "-1")
+	out, err := u.runCmd(true, "mscan", "-n", "--", "-1")
+	if err != nil {
+		return "", err
+	}
+	u.total, err = strconv.Atoi(out[0])
 	if err != nil {
 		return "", err
 	}
@@ -161,11 +164,15 @@ func (u *UI) scanfmt() (string, error) {
 }
 
 func (u *UI) mscan() error {
-	var err error
-	u.dot, err = u.cmdtoi("mscan", "-n", ".")
+	out, err := u.runCmd(true, "mscan", "-n", ".")
 	if err != nil {
 		return err
 	}
+	u.dot, err = strconv.Atoi(out[0])
+	if err != nil {
+		return err
+	}
+
 	u.rangefmt, err = u.scanfmt()
 	if err != nil {
 		return err
@@ -378,19 +385,6 @@ func (u *UI) update(ev tcell.Event) error {
 		}
 	}
 	return nil
-}
-
-// cmdtoi wraps runCmd and parses the output as an integer.
-func (u *UI) cmdtoi(cmd string, args ...string) (int, error) {
-	out, err := u.runCmd(true, cmd, args...)
-	if err != nil {
-		return -1, err
-	}
-	n, err := strconv.Atoi(out[0])
-	if err != nil {
-		return -1, err
-	}
-	return n, nil
 }
 
 func (u *UI) runCmd(bg bool, cmd string, args ...string) ([]string, error) {
