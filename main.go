@@ -112,7 +112,7 @@ func (u *UI) mshow() error {
 		}
 		cmd = exec.Command("mshow", args...)
 	}
-	cmd.Env = append(os.Environ(), "MBLAZE_PAGER="+pager)
+	cmd.Env = append(append(os.Environ(), "MBLAZE_PAGER="+pager), "LESS=-R")
 	u.t.Close()
 	return u.t.Start(cmd)
 }
