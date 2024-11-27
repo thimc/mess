@@ -23,6 +23,9 @@ var (
 
 	limitflag = flag.Int("limit", 5, "amount of mails to be previewed in mscan")
 	mouseflag = flag.Bool("mouse", false, "enables mouse support")
+
+	pager     string
+	mshowArgs string
 )
 
 type point struct{ x, y int }
@@ -86,14 +89,9 @@ func NewUI(style tcell.Style) (*UI, error) {
 
 func (u *UI) mshow() error {
 	var (
-		pager     = os.Getenv("PAGER")
-		mshowArgs = os.Getenv("MSHOW_ARGS")
-		args      = strings.Split(mshowArgs, " ")
-		cmd       *exec.Cmd
+		args = strings.Split(mshowArgs, " ")
+		cmd  *exec.Cmd
 	)
-	if pager == "" || pager == "less" {
-		pager = "less -R"
-	}
 	if u.raw {
 		fname, err := u.runCmd(true, "mseq", ".")
 		if err != nil {
@@ -232,7 +230,9 @@ func (u *UI) update(ev tcell.Event) error {
 		// is lesser than *limitflag.
 		w, h := ev.Size()
 		u.v.Resize(0, 0, w, *limitflag+1)
+		u.tv.Resize(0, *limitflag+1, w, h)
 		u.t.Resize(w, h)
+		u.p.Resize()
 		if err := u.mscan(); err != nil {
 			return err
 		}
@@ -385,7 +385,6 @@ func (u *UI) update(ev tcell.Event) error {
 				return err
 			}
 			return u.mshow()
-
 		case ev.Key() == tcell.KeyCtrlL:
 			u.s.Clear()
 			return nil
@@ -416,6 +415,14 @@ func (u *UI) runCmd(bg bool, cmd string, args ...string) ([]string, error) {
 	}
 	output := strings.TrimSuffix(string(buf), "\n")
 	return strings.Split(output, "\n"), nil
+}
+
+func init() {
+	pager = os.Getenv("PAGER")
+	mshowArgs = os.Getenv("MSHOW_ARGS")
+	if pager == "" || pager == "less" {
+		pager = "less -R"
+	}
 }
 
 func main() {
